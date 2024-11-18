@@ -85,9 +85,45 @@ def get_nodes_has_file(file_name):
         cursor.execute("SELECT ip_address, port FROM Nodes WHERE files_holding LIKE ?", ('%'+file_name+'%',))
         nodes = cursor.fetchall()
     
-        magnet_link = cursor.execute("SELECT magnet_link FROM Files WHERE file_name = ?", (file_name,)).fetchone()
-        return {"nodes": nodes, "magnet_link": magnet_link}
+        cursor.execute("SELECT magnet_link, total_piece FROM Files WHERE file_name = ?", (file_name,))
+        query = cursor.fetchone()
+
+        if query:
+            magnet_link, total_piece = query
+        else:
+            raise ValueError("File not found.")
+
+        return {"nodes": nodes, "magnet_link": magnet_link, "total_piece": total_piece}
     except Exception as e:
         print(f"Error in get_node_has_file: {e}")
     finally:
         conn.close()
+
+'''DEBUG FUNCTIONS'''
+def print_nodes():
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM Nodes")
+    print(cursor.fetchall())
+    conn.close()
+
+def print_files():
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM Files")
+    print(cursor.fetchall())
+    conn.close()
+
+def print_pieces():
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM Pieces")
+    print(cursor.fetchall())
+    conn.close()
+
+def print_pieces_nodes():
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM PiecesNodes")
+    print(cursor.fetchall())
+    conn.close()

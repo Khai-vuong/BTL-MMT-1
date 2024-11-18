@@ -5,6 +5,8 @@ import os
 import concurrent.futures
 import hashlib
 import threading
+import urllib.parse
+
 from threading import Thread
 
 PIECESIZE = 1024
@@ -59,6 +61,37 @@ def register_node(client_socket, ip, port):
 '''
 Các hàm về download / upload file
 '''
+def generate_magnet_link(file_name, pieces_metadata):
+    """
+    Generates a magnet link for a file based on its metadata.
+
+    Args:
+        file_name (str): Name of the file.
+        pieces_metadata (list): Metadata of all pieces (list of hashes or similar info).
+
+    Returns:
+        str: Magnet link for the file.
+    """
+    # Concatenate piece hashes to compute the file's info_hash
+    info_hash = hashlib.sha1("".join(p['piece_hash'] for p in pieces_metadata).encode()).hexdigest()
+
+    # Build the magnet link
+    magnet_link = f"magnet:?xt=urn:btih:{info_hash}&dn={file_name}"
+    return magnet_link
+
+def decode_magnet_link(magnet_link):
+    if not magnet_link.startswith("magnet:?xt=urn:btih:"):
+        raise ValueError("Invalid magnet link format.")
+
+    parsed_url = urllib.parse.urlparse(magnet_link)
+    query_params = urllib.parse.parse_qs(parsed_url.query)
+
+    # Extract the info_hash and file_name (dn)
+    info_hash = parsed_url.path.split(":")[-1]
+    file_name = query_params.get("dn", ["Unknown"])[0]
+
+    return {"info_hash": info_hash, "file_name": file_name}
+
 def split_file(file_name, piece_size=1024 * 1024):  # Default piece size = 1 MB
     """
     Splits a file into pieces and generates metadata for each piece.
@@ -90,6 +123,33 @@ def split_file(file_name, piece_size=1024 * 1024):  # Default piece size = 1 MB
             })
     
     return metadata
+
+def find_file(tracker_ip, tracker_port, file_name):
+    """
+    Returns:
+        dict: A dictionary containing the nodes, magnet_link, and total_pieces.
+    """
+    try:
+        # Create and connect the socket to the tracker
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client_socket.connect((tracker_ip, tracker_port))
+
+        # Send FIND_FILE request
+        request = f"FIND_FILE {file_name}"
+        client_socket.sendall(request.encode())
+        print(f"Sent request: {request}")
+
+        # Receive and parse the response
+        response = client_socket.recv(4096).decode("utf-8")
+        response_json = json.loads(response)
+        return response_json
+
+    except socket.error as e:
+        print(f"Error connecting to tracker: {e}")
+        return None
+
+    finally:
+        client_socket.close()
 
 def download_piece(piece_index, peer_ip, peer_port, file_name, save_path):
     """
@@ -127,16 +187,12 @@ def download_piece(piece_index, peer_ip, peer_port, file_name, save_path):
     finally:
         client_socket.close()
 
-def download_file(file_name, magnet_link, nodes, save_path="downloads"):
+def download_file(file_name, nodes, magnet_link, total_pieces, save_path="downloads"):
     """
     Tải toàn bộ file từ danh sách các nodes được cung cấp.
     """
     os.makedirs(save_path, exist_ok=True)
 
-    # Giải mã magnet link để lấy tổng số mảnh
-    info_hash = magnet_link.split("btih:")[1].split("&")[0]
-    total_pieces = len(info_hash) // 64  # Dựa trên số hash SHA-256 (giả định)
-    
     # Tải từng mảnh
     threads = []
     for piece_index in range(total_pieces):
@@ -169,9 +225,10 @@ def download_file(file_name, magnet_link, nodes, save_path="downloads"):
 
 def send_runtime_commands(client_socket : socket.socket):
     print("You can now enter runtime commands. Type 'exit' to quit.")
+
     try:
         while True:
-            command = input()
+            command = input("Node CLI >")
             if command.lower() == "exit":
                 print("Closing connection...")
                 client_socket.sendall("DISCONNECT".encode())
@@ -226,23 +283,6 @@ def send_runtime_commands(client_socket : socket.socket):
         client_socket.close()
 
 
-def generate_magnet_link(file_name, pieces_metadata):
-    """
-    Generates a magnet link for a file based on its metadata.
-
-    Args:
-        file_name (str): Name of the file.
-        pieces_metadata (list): Metadata of all pieces (list of hashes or similar info).
-
-    Returns:
-        str: Magnet link for the file.
-    """
-    # Concatenate piece hashes to compute the file's info_hash
-    info_hash = hashlib.sha1("".join(p['piece_hash'] for p in pieces_metadata).encode()).hexdigest()
-
-    # Build the magnet link
-    magnet_link = f"magnet:?xt=urn:btih:{info_hash}&dn={file_name}"
-    return magnet_link
 
 
 if __name__ == "__main__":
@@ -264,8 +304,10 @@ if __name__ == "__main__":
     print(f"Node IP detected: {client_ip}")
     print(f"Node Port specified: {client_port}")
 
+
     # Establish connection to the server and register the node
     client_socket = connect_to_tracker(server_ip, server_port, client_ip, client_port)
     if client_socket:
-        client_socket.close()
+        send_runtime_commands(client_socket)  # Keep the connection and CLI open
+        client_socket.close()  # Close the connection when done
         print("Connection closed.")
