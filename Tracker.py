@@ -106,8 +106,9 @@ def handle_cli_input():
     except Exception as e:
         print(f"Error in handle_cli_input: {e}")
 
-
+#Handle Ctrl+C
 def signal_handler(sig, frame):
+    global server_socket
     print('Terminating the server...')
     server_socket.close()
     sys.exit(0)

@@ -18,7 +18,7 @@ def initialize_database(db_name="tracker.db"):
         nid INTEGER PRIMARY KEY,
         ip_address TEXT NOT NULL,
         port INTEGER NOT NULL,
-        files_holding TEXT NOT NULL
+        files_holding TEXT
     )
     ''')
 

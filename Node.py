@@ -10,6 +10,7 @@ import urllib.parse
 from threading import Thread
 
 PIECESIZE = 1024
+client_socket = None
 
 '''
 Các Hàm về kết nối tracker (initialize)
@@ -36,6 +37,7 @@ def connect_to_tracker(server_ip, server_port, node_ip, node_port):
     """
     :return: The connected socket object or None if the connection fails.
     """
+    global client_socket
     try:
         # Create and connect the socket to the server
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -55,6 +57,9 @@ def register_node(client_socket, ip, port):
         message = f"REGISTER_NODE {ip} {port}"
         client_socket.sendall(message.encode())
         print(f"Sent registration message: {message}")
+
+        respone = client_socket.recv(1024).decode("utf-8")
+        print(f"Server response: {respone}")
     except socket.error as e:
         print(f"Error sending registration message: {e}")
 

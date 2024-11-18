@@ -8,7 +8,7 @@ def register_node(peer_ip, peer_port):
     try:
         conn = connect_db()
         cursor = conn.cursor()
-        cursor.execute("INSERT OR IGNORE INTO Nodes (ip_address, port) VALUES (?, ?)", (peer_ip, peer_port))
+        cursor.execute("INSERT INTO Nodes (ip_address, port) VALUES (?, ?)", (peer_ip, peer_port))
         conn.commit()
     except Exception as e:
         print(f"Error in register_node: {e}")
