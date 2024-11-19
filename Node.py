@@ -10,6 +10,24 @@ from threading import Thread
 client_socket = None        # To connect to the server
 root_path ='./storage'      # Path to the storage folder
 
+def signal_handler(sig, frame):
+    global client_socket
+    print('Terminating the Node...')
+
+    request = "DISCONNECT"
+    client_socket.sendall(request.encode('utf-8'))
+    response = client_socket.recv(1024).decode('utf-8')
+    print(f"EXIT response: {response}")
+
+    client_socket.close()
+    sys.exit(0)
+
+def assign_global(cli_socket, root):
+    global client_socket
+    global root_path
+    client_socket = cli_socket
+    root_path = root
+
 def get_default_interface():
     """
     Get the default IP address and an available port of the machine.
@@ -118,29 +136,36 @@ def send_runtime_commands():
                 
                 # Receive and parse server response
                 response = client_socket.recv(1024 * 20).decode('utf-8')
+
+                f_sys.parse_find_file_response(response)
+
+            elif command.startswith("PING"):
                 try:
-                    response_json = json.loads(response)  # Parse the JSON response
-                    nodes = response_json.get("nodes", [])
-                    magnet_link = response_json.get("magnet_link")
-                    total_piece = response_json.get("total_piece")
+                    _, target_ip, target_port = command.split()
+                    target_port = int(target_port)
+                    
+                    # Create a new socket for the ping
+                    ping_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    ping_socket.settimeout(5)  # Set a timeout for the connection attempt
 
-                    print(f"Nodes {nodes}")
-                    print(f"Magnet link: {magnet_link}")
-                    print(f"Total pieces: {total_piece}")
+                    print(f"Pinging {target_ip}:{target_port}...")
+                    ping_socket.connect((target_ip, target_port))
+                    ping_socket.sendall("PING".encode('utf-8'))
 
-                    if isinstance(nodes, list) and nodes:
-                        print("Nodes with the requested file:")
-                        for node in nodes:
-                            ip = node[0]
-                            port = node[1]
-                            print(f"Node: {ip}:{port}")
-                            # print(f"Node: {node[0]}")
+                    # Wait for a response
+                    response = ping_socket.recv(1024).decode()
+                    if response == "PONG":
+                        print(f"Ping to {target_ip}:{target_port} successful.")
                     else:
-                        print("No nodes have the requested file.")
-                except json.JSONDecodeError:
-                    print("Error decoding server response. Raw response:")
-                    print(response)
+                        print(f"Unexpected response from {target_ip}:{target_port}: {response}")
 
+                    ping_socket.close()
+                except Exception as e:
+                    print(f"Error processing PING command: {e}")
+
+            # Wait for server response
+            response = client_socket.recv(1024).decode()
+            print(f"Server response: {response}")
 
             # Wait for server response
             response = client_socket.recv(1024).decode()
@@ -150,17 +175,24 @@ def send_runtime_commands():
     finally:
         client_socket.close()
 
-def signal_handler(sig, frame):
+def listen_for_messages():
     global client_socket
-    print('Terminating the Node...')
+    try:
+        while True:
+            data = client_socket.recv(1024).decode("utf-8").strip()
+            if not data:
+                print("Connection closed by server.")
+                break
+            print(f"Received from server: {data}")
+            
+            if data == "PING":
+                client_socket.sendall("PONG".encode())
 
-    request = "DISCONNECT"
-    client_socket.sendall(request.encode('utf-8'))
-    response = client_socket.recv(1024).decode('utf-8')
-    print(f"EXIT response: {response}")
-
-    client_socket.close()
-    sys.exit(0)
+                
+    except Exception as e:
+        print(f"Error in listening for messages: {e}")
+    finally:
+        client_socket.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -170,12 +202,14 @@ if __name__ == "__main__":
     )
     parser.add_argument("--server-ip", required=True, help="IP address of the server.")
     parser.add_argument("--server-port", type=int, required=True, help="Port of the server.")
+    parser.add_argument("--root-folder", required=True, help="Root folder.")
 
     args = parser.parse_args()
 
     # Extract arguments
     server_ip = args.server_ip
     server_port = args.server_port
+
     client_ip, client_port = get_default_interface()  # Automatically detect the node's IP
 
     print(f"Node IP detected: {client_ip}")
@@ -186,8 +220,19 @@ if __name__ == "__main__":
     if client_socket:
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
+
+        assign_global(client_socket, args.root_folder)
         
-        send_runtime_commands()  # Keep the connection and CLI open
+        # Start the listening thread
+        listening_thread = Thread(target=listen_for_messages, daemon=True)
+        listening_thread.start()
+
+        # Start the CLI thread
+        cli_thread = Thread(target=send_runtime_commands)
+        cli_thread.start()
+
+        # Wait for the CLI thread to finish
+        cli_thread.join()
 
         client_socket.close()  # Close the connection when done
         print("Connection closed.")

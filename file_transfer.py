@@ -99,6 +99,36 @@ def find_file(tracker_ip, tracker_port, file_name):
     finally:
         client_socket.close()
 
+def parse_find_file_response(response):
+    """
+    Returns:
+        dict: A dictionary containing the nodes, magnet_link, and total_pieces.
+    """
+    try:
+        response_json = json.loads(response)  # Parse the JSON response
+        nodes = response_json.get("nodes", [])
+        magnet_link = response_json.get("magnet_link")
+        total_piece = response_json.get("total_piece")
+
+        print(f"Nodes: {nodes}")
+        print(f"Magnet link: {magnet_link}")
+        print(f"Total pieces: {total_piece}")
+
+        if isinstance(nodes, list) and nodes:
+            print("Nodes with the requested file:")
+            for node in nodes:
+                ip = node[0]
+                port = node[1]
+                print(f"Node: {ip}:{port}")
+        else:
+            print("No nodes have the requested file.")
+
+        return response_json
+    except json.JSONDecodeError:
+        print("Error decoding server response. Raw response:")
+        print(response)
+        return None
+
 def download_piece(piece_index, peer_ip, peer_port, file_name, save_path):
     """
     Tải một mảnh từ peer.

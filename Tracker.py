@@ -133,19 +133,6 @@ def stop_cli_thread():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-#Tạo server process, lắng nghe kết nối từ client trên ip:port
-def server_program(host, port):
-    global server_socket
-    server_socket = socket.socket()
-    server_socket.bind((host, port))
-
-    server_socket.listen(10)     # Listen at most 10 connections
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    while True:
-        conn, addr = server_socket.accept()      #Lệnh này mang tính blocking, chờ kết nối từ client
-        node_thread = Thread(target=handle_request, args=(conn, addr))
-        node_thread.start()
 
 if __name__ == "__main__":
     #hostname = socket.gethostname()
@@ -158,7 +145,16 @@ if __name__ == "__main__":
     cli_thread = Thread(target=handle_cli_input, daemon=True)
     cli_thread.start()
 
-    server_program(hostip, port)
+    server_socket = socket.socket()
+    server_socket.bind((hostip, port))
+
+    server_socket.listen(10)     # Listen at most 10 connections
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    while True:
+        conn, addr = server_socket.accept()      #Lệnh này mang tính blocking, chờ kết nối từ client
+        node_thread = Thread(target=handle_request, args=(conn, addr))
+        node_thread.start()
 
 '''
     data.split() -> ['REGISTER_FILE', 'file_name', 'total_piece'], nó trả về array
