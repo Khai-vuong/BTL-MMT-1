@@ -7,7 +7,13 @@ import signal
 import file_transfer as f_sys
 from threading import Thread
 
+root_path = './storage'
+tracker_ip = None
+tracker_port = None
+this_ip = None
+this_port = None
 
+#GETTERS
 def get_default_interface():
     """
     Get the default IP address and an available port of the machine.
@@ -26,6 +32,81 @@ def get_default_interface():
         s.close()
     return ip, port
 
+def get_ephemeral_port():
+    """
+    Establish a connection to the tracker using an ephemeral port.
+    :return: A connected socket object.
+    """
+    global tracker_ip, tracker_port
+
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.bind(("", 0))  # Bind to an ephemeral port
+    client_socket.connect((tracker_ip, tracker_port))
+    return client_socket
+
+#INITIALIZERS
+def assign_global(server_ip, server_port, root_folder, node_ip, node_port):
+    global tracker_ip, tracker_port, root_path, this_ip, this_port
+    root_path = root_folder
+    tracker_ip = server_ip
+    tracker_port = server_port
+    this_ip = node_ip
+    this_port = node_port
+
+def register_node(ephemeral_socket):
+    global this_ip, this_port
+
+    try:
+        request = f"REGISTER_NODE {this_ip} {this_port}"
+        ephemeral_socket.sendall(request.encode('utf-8'))
+        print(f"Sent registration message: {request}")
+
+        respone = ephemeral_socket.recv(1024).decode("utf-8")
+        print(f"Server response: {respone}")
+
+    except socket.error as e:
+        print(f"Error sending registration message: {e}")
+
+def register_files(ephemeral_socket):
+    global root_path, this_ip, this_port
+
+    if not os.path.exists(root_path):
+        print(f"Storage path {root_path} does not exist.")
+        return
+
+    for file_name in os.listdir(root_path):
+        file_path = os.path.join(root_path, file_name)
+        if os.path.isfile(file_path):
+            try:
+                pieces_metadata = f_sys.split_file(file_path)  # Split the file and get metadata
+                magnet_link = f_sys.generate_magnet_link(os.path.basename(file_path), pieces_metadata)
+                total_piece = len(pieces_metadata)
+
+                request = f"REGISTER_FILE {this_ip} {this_port} {file_name} {total_piece} {magnet_link}"
+
+                ephemeral_socket.sendall(request.encode('utf-8'))
+                print(f"Registered file: {file_name} with magnet link: {magnet_link}")
+
+                respone = ephemeral_socket.recv(1024).decode('utf-8')
+                print(f"Server response: {respone}")
+                
+            except Exception as e:
+                print(f"Error registering file {file_name}: {e}")
+
+def connect_to_tracker():
+    try:        
+        ephemeral_socket = get_ephemeral_port()
+
+        register_node(ephemeral_socket)
+        register_files(ephemeral_socket)
+
+    except Exception as e:
+        print(f"Error connecting to tracker: {e}")
+
+    finally:
+        ephemeral_socket.close()
+
+# Thread-related functions
 def start_server_process(ip, port):
     """
     Start a server process that continuously listens for incoming connections.
@@ -70,7 +151,7 @@ def handle_income_request(client_conn):
     finally:
         client_conn.close()
     
-def handle_cli_input(tracker_ip, tracker_port, this_ip, this_port):
+def handle_cli_input(this_ip, this_port):
     # Bind to an ephemeral port
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.bind(("", 0))  # Bind to an ephemeral port
@@ -169,7 +250,8 @@ if __name__ == "__main__":
     print(f"Node IP detected: {pserver_ip}")
     print(f"Node Port specified: {pserver_port}")
 
-    #Kết nối và khai báo node, files tới tracker DO HERE
+    assign_global(args.server_ip, args.server_port, args.root_folder, pserver_ip, pserver_port)
+    connect_to_tracker()
 
     server_thread = Thread(target=start_server_process, daemon=True, args=(pserver_ip, pserver_port))
     CLI_thread = Thread(target=handle_cli_input, daemon=True, args=(tracker_ip, tracker_port, pserver_ip, pserver_port))   
