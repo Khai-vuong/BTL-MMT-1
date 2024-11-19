@@ -1,52 +1,18 @@
 import socket
-import time
-import argparse
 
-from threading import Thread
+def start_client(host='192.168.56.105', port=12345):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+        client_socket.connect((host, port))
+        print(f"Connected to server at {host}:{port}")
 
-def send_info(client_socket, peer_ip, peer_port):
-    data = f"{peer_ip}:{peer_port}".encode("utf-8")
-    client_socket.send(data)
+        message = "Hello, Server!"
+        client_socket.sendall(message.encode())
+        print(f"Sent to server: {message}")
 
+        data = client_socket.recv(1024)
+        print(f"Received from server: {data.decode()}")
 
-def new_connection(tid, host, port):    #host, port of server
-    print('Thread ID {:d} connecting to {}:{:d}'.format(tid, host, port))
-
-    client_socket = socket.socket()
-    client_socket.connect((host, port))
-
-    peer_ip, peer_port = client_socket.getsockname()
-    
-    send_info(client_socket, peer_ip, peer_port)
-
-
-    # Demo sleep time for fun (dummy command)
-    for i in range(0,3):
-       print('Let me, ID={:d} sleep in {:d}s'.format(tid,3-i))
-       time.sleep(1)
- 
-    print('OK! I am ID={:d} done here'.format(tid))
-
-
-def connect_server(threadnum, host, port):
-
-    # Create "threadnum" of Thread to parallelly connnect, host / port of server
-    threads = [Thread(target=new_connection, args=(i, host, port)) for i in range(0,threadnum)]
-    [t.start() for t in threads]
-
-    # TODO: wait for all threads to finish
-    [t.join() for t in threads]
+        print("Connection closed")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-                        prog='Client',
-                        description='Connect to pre-declard server',
-                        epilog='!!!It requires the server is running and listening!!!')
-    parser.add_argument('--server-ip')
-    parser.add_argument('--server-port', type=int)
-    parser.add_argument('--client-num', type=int)
-    args = parser.parse_args()
-    host = args.server_ip
-    port = args.server_port
-    cnum = args.client_num
-    connect_server(cnum, host, port)
+    start_client()

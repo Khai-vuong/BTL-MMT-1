@@ -39,9 +39,9 @@ def get_default_interface():
         s.bind(("", 0))  # Bind to an ephemeral port
         s.connect(("8.8.8.8", 80))  # Simulate a connection to get the IP
         ip = s.getsockname()[0]
-        port = s.getsockname()[1]
+        port = 10000  # Default port
     except Exception:
-        ip, port = "127.0.0.1", 100
+        ip, port = "192.168.56.104", 10000
     finally:
         s.close()
     return ip, port
@@ -188,11 +188,55 @@ def listen_for_messages():
             if data == "PING":
                 client_socket.sendall("PONG".encode())
 
-                
+
     except Exception as e:
         print(f"Error in listening for messages: {e}")
     finally:
         client_socket.close()
+
+def start_server_process(ip, port):
+    """
+    Start a server process that continuously listens for incoming connections.
+    :param ip: IP address to bind the server to.
+    :param port: Port to bind the server to.
+    """
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind((ip, port))
+    server_socket.listen(5)
+    print(f"Node listening on {ip}:{port}")
+
+    try:
+        while True:
+            client_socket, client_addr = server_socket.accept()
+            print(f"Accepted connection from {client_addr}")
+
+            # Handle the client connection in a separate thread
+            client_thread = Thread(target=handle_client, args=(client_socket,))
+            client_thread.start()
+    except Exception as e:
+        print(f"Error in server process: {e}")
+    finally:
+        server_socket.close()
+
+def handle_client(client_conn):
+    """
+    Handle the communication with a connected client.
+    :param client_conn: The socket object for the client connection.
+    """
+    try:
+        while True:
+            data = client_conn.recv(1024).decode("utf-8").strip()
+            if not data:
+                print("Client disconnected.")
+                break
+            print(f"Received from client: {data}")
+
+            # Echo the received data back to the client
+            client_conn.sendall(data.encode("utf-8"))
+    except Exception as e:
+        print(f"Error handling client: {e}")
+    finally:
+        client_conn.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
