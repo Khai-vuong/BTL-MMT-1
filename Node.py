@@ -97,39 +97,44 @@ def send_runtime_commands():
                 client_socket.sendall("DISCONNECT".encode())
                 break
 
-            elif command.startwith("REGISTTER_FILE"):
+            elif command.startswith("REGISTTER_FILE"):
                 '''
                 REGISTTER_FILE <file_name> <total_piece> <magnet_link>
                 '''
                 try:
                     file_path = command.split(" ", 1)[1]  # Extract file path from command
-                    pieces_metadata = split_file(file_path)  # Split the file and get metadata
+                    pieces_metadata = f_sys.split_file(file_path)  # Split the file and get metadata
 
-                    magnet_link = generate_magnet_link(os.path.basename(file_path), pieces_metadata)
+                    magnet_link = f_sys.generate_magnet_link(os.path.basename(file_path), pieces_metadata)
                     request = f"{command} {magnet_link}"  
                     client_socket.sendall(request.encode())  
                     print(f"Sent request: {request}")
                 except Exception as e:
                     print(f"Error processing REGISTER_FILE command: {e}")
 
+            #Use for manual input files
             elif command.startswith("FIND_FILE"):
-                client_socket.sendall(command.encode())  # Send FIND_FILE command
+                client_socket.sendall(command.encode())  #  FIND_FILE <file_name>
                 
                 # Receive and parse server response
-                response = client_socket.recv(1024).decode()
+                response = client_socket.recv(1024 * 20).decode('utf-8')
                 try:
                     response_json = json.loads(response)  # Parse the JSON response
                     nodes = response_json.get("nodes", [])
                     magnet_link = response_json.get("magnet_link")
+                    total_piece = response_json.get("total_piece")
 
+                    print(f"Nodes {nodes}")
+                    print(f"Magnet link: {magnet_link}")
+                    print(f"Total pieces: {total_piece}")
 
-                    nodes = json.loads(response)  # Parse the JSON response
                     if isinstance(nodes, list) and nodes:
                         print("Nodes with the requested file:")
                         for node in nodes:
-                            ip = node.get("ip", "Unknown IP")
-                            port = node.get("port", "Unknown Port")
+                            ip = node[0]
+                            port = node[1]
                             print(f"Node: {ip}:{port}")
+                            # print(f"Node: {node[0]}")
                     else:
                         print("No nodes have the requested file.")
                 except json.JSONDecodeError:

@@ -5,12 +5,13 @@ import sys
 import hashlib
 import signal
 
-from threading import Thread
+from threading import Thread, Event
 from init_db import *
 import db_manager as db
 
 #Global
 server_socket = None
+stop_event = Event()
 
 #Lấy IP của máy đang chạy, nếu fail thì lấy IP mặc định = '192.168.56.105'
 def get_host_default_interface_ip():
@@ -25,6 +26,9 @@ def get_host_default_interface_ip():
     return ip
 
 def handle_request(conn, addr):
+    client_ip = None
+    client_port = None
+
     try:
         while True:
             data = conn.recv(1024).decode("utf-8").strip()
@@ -36,8 +40,8 @@ def handle_request(conn, addr):
 
             # Phân tích và xử lý yêu cầu
             if data.startswith("REGISTER_NODE"):
-                _, peer_ip, peer_port = data.split()
-                db.register_node(peer_ip, peer_port)
+                _, client_ip, client_port = data.split()
+                db.register_node(client_ip, client_port)
                 conn.sendall("Node registered!".encode('utf-8'))
 
             elif data.startswith("REGISTER_FILE"):
@@ -46,25 +50,27 @@ def handle_request(conn, addr):
                 output: message from the DB
                 '''
 
-                _, file_name, total_piece, magnet_link = data.split()
-                peer_ip, peer_port = addr[0], addr[1]
-                response = db.register_file(file_name, int(total_piece), peer_ip, peer_port, magnet_link)
+                _, file_name, total_piece, magnet_link = data.split()                
+                response = db.register_file(file_name, int(total_piece), client_ip, client_port, magnet_link)
                 conn.sendall(response.encode('utf-8'))
-
 
             elif data.startswith("FIND_FILE"):
                 _, file_name = data.split()
                 response = db.get_nodes_has_file(file_name)
+                
+                # Debug: Print the response from the database
+                print(f"Response from the db for file '{file_name}': {response}")
+                
                 response_json = {
                     "nodes": response["nodes"],
                     "magnet_link": response["magnet_link"],
                     "total_piece": response["total_piece"]
                 }
+                
                 conn.sendall(json.dumps(response_json).encode('utf-8'))
 
             elif data.startswith("DISCONNECT"):
-                peer_ip, peer_port = addr[0], addr[1]
-                db.remove_node(peer_ip, peer_port)
+                db.remove_node(client_ip, client_port)
                 conn.sendall("Node disconnected.".encode('utf-8'))
 
             else:
@@ -75,14 +81,18 @@ def handle_request(conn, addr):
         conn.close()
 
 def handle_cli_input():
+    global server_socket
+    global stop_event
     try:
-        while True:
+        while not stop_event.is_set():
             user_input = input("Tracker CLI > ")
-            # Example of handling a command:
+
             if user_input.lower() == "exit":
                 print("Exiting tracker server...")
-                server_socket.close()
-                sys.exit(0) 
+                # stop_event.set()
+                # server_socket.close()
+                # sys.exit(0) 
+                signal_handler(0, 0)
 
             elif user_input.startswith("DISPLAY"):
                 _, table_name = user_input.split()
@@ -98,6 +108,9 @@ def handle_cli_input():
                 elif table_name == "PiecesNodes":
                     print("PiecesNodes:")
                     print(db.print_pieces_nodes())
+                elif table_name == "NodesFiles":
+                    print("NodesFiles:")
+                    print(db.print_nodes_files())
                 else:
                     print("Unknown table name.")
 
@@ -112,6 +125,13 @@ def signal_handler(sig, frame):
     print('Terminating the server...')
     server_socket.close()
     sys.exit(0)
+
+def stop_cli_thread():
+    print("Stopping CLI thread...")
+    sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
 
 #Tạo server process, lắng nghe kết nối từ client trên ip:port
 def server_program(host, port):

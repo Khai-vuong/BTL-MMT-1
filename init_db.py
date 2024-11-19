@@ -17,8 +17,7 @@ def initialize_database(db_name="tracker.db"):
     CREATE TABLE IF NOT EXISTS Nodes (
         nid INTEGER PRIMARY KEY,
         ip_address TEXT NOT NULL,
-        port INTEGER NOT NULL,
-        files_holding TEXT
+        port INTEGER NOT NULL
     )
     ''')
 
@@ -54,6 +53,17 @@ def initialize_database(db_name="tracker.db"):
     )
     ''')
 
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS NodesFiles (
+        file_id INTEGER NOT NULL,
+        node_id INTEGER NOT NULL,
+        PRIMARY KEY (file_id, node_id),
+        FOREIGN KEY (file_id) REFERENCES Files(fid),
+        FOREIGN KEY (node_id) REFERENCES Nodes(nid)
+    )
+    ''')
+
     # Commit changes and close the connection
     conn.commit()
     conn.close()
@@ -62,7 +72,3 @@ def initialize_database(db_name="tracker.db"):
 # Main block to trigger the initialization
 if __name__ == "__main__":
     initialize_database()
-
-'''
-Mấy trường đa trị (VD files_holding) được lưu dưới dạng file1.png,file2.png,file3.png
-'''

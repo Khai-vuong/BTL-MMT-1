@@ -40,7 +40,7 @@ def decode_magnet_link(magnet_link):
 
     return {"info_hash": info_hash, "file_name": file_name}
 
-def split_file(file_name, piece_size=1024 * 1024):  # Default piece size = 1 MB
+def split_file(file_name, piece_size=PIECESIZE):  # Default piece size = 1 MB
     """
     Splits a file into pieces and generates metadata for each piece.
 

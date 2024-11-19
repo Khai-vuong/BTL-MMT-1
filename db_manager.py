@@ -65,27 +65,54 @@ def add_file_to_node(nid, file_name):
     conn = connect_db()
     cursor = conn.cursor()
 
-    # Lấy giá trị hiện tại
-    cursor.execute("SELECT files_holding FROM Nodes WHERE nid = ?", (nid,))
-    result = cursor.fetchone()      #Result is a tuple
-    if result:
-        files_holding = result[0].split(",") if result[0] else []
-        if file_name not in files_holding:
-            files_holding.append(file_name)
-            # Cập nhật giá trị
-            cursor.execute("UPDATE Nodes SET files_holding = ? WHERE nid = ?", (",".join(files_holding), nid))
-    conn.commit()
-    conn.close()
+    # Get the file ID based on the file name
+    cursor.execute("SELECT fid FROM Files WHERE file_name = ?", (file_name,))
+    file = cursor.fetchone()
+    if not file:
+        print(f"File {file_name} not found.")
+        conn.close()
+        return
+
+    fid = file[0]
+
+    # Insert the record into the NodesFiles table
+    try:
+        cursor.execute("INSERT INTO NodesFiles (file_id, node_id) VALUES (?, ?)", (fid, nid))
+        conn.commit()
+        print(f"Added file {file_name} (fid: {fid}) to node (nid: {nid}).")
+    except sqlite3.IntegrityError:
+        print(f"File {file_name} (fid: {fid}) is already associated with node (nid: {nid}).")
+    finally:
+        conn.close()
 
 #Returns (ip, port) of nodes holding the file
 def get_nodes_has_file(file_name):
     try:
         conn = connect_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT ip_address, port FROM Nodes WHERE files_holding LIKE ?", ('%'+file_name+'%',))
+
+        # Get the file ID based on the file name
+        cursor.execute("SELECT fid FROM Files WHERE file_name = ?", (file_name,))
+        file = cursor.fetchone()
+        if not file:
+            raise ValueError("File not found.")
+        
+        fid = file[0]
+
+        # Query to find nodes holding the requested file
+        cursor.execute("""
+            SELECT Nodes.ip_address, Nodes.port 
+            FROM NodesFiles
+            JOIN Nodes ON NodesFiles.node_id = Nodes.nid
+            WHERE NodesFiles.file_id = ?
+        """, (fid,))
         nodes = cursor.fetchall()
-    
-        cursor.execute("SELECT magnet_link, total_piece FROM Files WHERE file_name = ?", (file_name,))
+
+        if (not nodes):
+            raise ValueError("No nodes have the requested file " + file_name + " fid: " + str(fid))
+
+        # Query to find the magnet link and total pieces for the requested file
+        cursor.execute("SELECT magnet_link, total_piece FROM Files WHERE fid = ?", (fid,))
         query = cursor.fetchone()
 
         if query:
@@ -95,7 +122,7 @@ def get_nodes_has_file(file_name):
 
         return {"nodes": nodes, "magnet_link": magnet_link, "total_piece": total_piece}
     except Exception as e:
-        print(f"Error in get_node_has_file: {e}")
+        print(f"Error in get_nodes_has_file: {e}")
     finally:
         conn.close()
 
@@ -125,5 +152,12 @@ def print_pieces_nodes():
     conn = connect_db()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM PiecesNodes")
+    print(cursor.fetchall())
+    conn.close()
+
+def print_nodes_files():
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM NodesFiles")
     print(cursor.fetchall())
     conn.close()
