@@ -34,7 +34,7 @@ def get_default_interface():
         s.close()
     return ip, port
 
-def get_ephemeral_port():
+def get_ephemeral_socket():
     """
     Establish a connection to the tracker using an ephemeral port.
     :return: A connected socket object.
@@ -44,8 +44,16 @@ def get_ephemeral_port():
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.bind(("", 0))  # Bind to an ephemeral port
     client_socket.connect((tracker_ip, tracker_port))
-    client_socket.settimeout(5)
+    client_socket.settimeout(10)
     return client_socket
+
+# def get_ephemeral_socket():
+#     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+#     s.bind(('', 0))
+#     s.listen(1)
+#     port = s.getsockname()[1]
+#     s.close()
+#     return port
 
 #INITIALIZERS
 def assign_global(server_ip, server_port, root_folder, node_ip, node_port):
@@ -97,7 +105,7 @@ def register_files(ephemeral_socket):
                 print(f"Error registering file {file_name}: {e}")
 
 def connect_to_tracker():
-    ephemeral_socket = get_ephemeral_port()
+    ephemeral_socket = get_ephemeral_socket()
 
     try:        
         register_node(ephemeral_socket)
@@ -162,86 +170,36 @@ def handle_income_request(client_conn):
 def handle_cli_input(this_ip, this_port):
     # Bind to an ephemeral port
     print("You can now enter runtime commands. Type 'exit' to quit.")
-    try:
-        while True:
-            command = input("Node CLI >")
 
+    while True:
+        command = input("Node CLI >")
+
+        try:
             if command.lower() == "exit":
                 stop_server.set()
                 print("Closing connection...")
-                break
+                break    
 
-            #Use for manual input files
-            # elif command.startswith("REGISTTER_FILE"):
-            #     '''
-            #     input: REGISTER_FILE <file_name>
-            #     Send Request: REGISTTER_FILE <this_ip> <this_port> <file_name> <total_piece> <magnet_link>
-            #     '''
-            #     try:
-            #         _, file_path = command.split() # Extract file path from command
-            #         pieces_metadata = f_sys.split_file(file_path)  # Split the file and get metadata
-
-            #         magnet_link = f_sys.generate_magnet_link(os.path.basename(file_path), pieces_metadata)
-
-            #         request = f"{command} {magnet_link}"  
-            #         client_socket.sendall(request.encode())  
-            #         print(f"Sent request: {request}")
-            #     except Exception as e:
-            #         print(f"Error processing REGISTER_FILE command: {e}")
-
-            elif command.startswith("FIND_FILE"):
-
-                client_socket = get_ephemeral_port()
+            elif command.startswith("FIND_FILE"):                
                 try:
+                    client_socket = get_ephemeral_socket()
                     _, file_name = command.split()
-                    request = f"FIND_FILE {file_name}"
+                    request = command
                     client_socket.sendall(request.encode('utf-8'))
                     print(f"Sent request: {request}")
 
-                    response = client_socket.recv(1024).decode('utf-8')
+                    response = client_socket.recv(1024 * 20).decode('utf-8')
                     respone_json = f_sys.parse_find_file_response(response)
                     print(f"Server response: {respone_json}")
 
                 except Exception as e:
                     print(f"Error processing FIND_FILE command: {e}")
                 finally:
-                    client_socket.close()
+                      client_socket.close()
 
-            elif command.startswith("PING"):
-                try:
-                    _, target_ip, target_port = command.split()
-                    target_port = int(target_port)
-                    
-                    # Create a new socket for the ping
-                    ping_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    ping_socket.settimeout(5)  # Set a timeout for the connection attempt
+        except Exception as e:
+            print(f"Error in runtime commands: {e}")
 
-                    print(f"Pinging {target_ip}:{target_port}...")
-                    ping_socket.connect((target_ip, target_port))
-                    ping_socket.sendall("PING".encode('utf-8'))
-
-                    # Wait for a response
-                    response = ping_socket.recv(1024).decode()
-                    if response == "PONG":
-                        print(f"Ping to {target_ip}:{target_port} successful.")
-                    else:
-                        print(f"Unexpected response from {target_ip}:{target_port}: {response}")
-
-                    ping_socket.close()
-                except Exception as e:
-                    print(f"Error processing PING command: {e}")
-
-            # Wait for server response
-            response = client_socket.recv(1024).decode()
-            print(f"Server response: {response}")
-
-            # Wait for server response
-            response = client_socket.recv(1024).decode()
-            print(f"Server response: {response}")
-    except Exception as e:
-        print(f"Error in runtime commands: {e}")
-    finally:
-        client_socket.close()
 
 #Cleaning up functions
 def cleaning_up(sig, frame):
@@ -249,7 +207,7 @@ def cleaning_up(sig, frame):
     stop_server.set()
     print("Interrupt received, shutting down...")
 
-    ephemeral_socket = get_ephemeral_port()
+    ephemeral_socket = get_ephemeral_socket()
     # Send disconnect message to the tracker
     try:
         REQUEST = f"DISCONNECT_NODE {this_ip} {this_port}"
@@ -304,7 +262,7 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, cleaning_up)
 
     server_thread.join()
-    CLI_thread.join(timeout=1)
+    CLI_thread.join()
 
     cleaning_up(None, None)
     sys.exit(0)

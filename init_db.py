@@ -49,7 +49,7 @@ def initialize_database(db_name="tracker.db"):
         node_id INTEGER NOT NULL,
         PRIMARY KEY (piece_id, node_id),
         FOREIGN KEY (piece_id) REFERENCES Pieces(pid),
-        FOREIGN KEY (node_id) REFERENCES Nodes(nid)
+        FOREIGN KEY (node_id) REFERENCES Nodes(nid) ON DELETE CASCADE
     )
     ''')
 
@@ -60,6 +60,14 @@ def initialize_database(db_name="tracker.db"):
         node_id INTEGER NOT NULL,
         PRIMARY KEY (file_id, node_id),
         FOREIGN KEY (file_id) REFERENCES Files(fid),
+        FOREIGN KEY (node_id) REFERENCES Nodes(nid) ON DELETE CASCADE
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS ONLINES (
+        node_id INTEGER NOT NULL,
+        PRIMARY KEY (node_id),
         FOREIGN KEY (node_id) REFERENCES Nodes(nid)
     )
     ''')
