@@ -94,9 +94,9 @@ def register_files(ephemeral_socket):
                 print(f"Error registering file {file_name}: {e}")
 
 def connect_to_tracker():
-    try:        
-        ephemeral_socket = get_ephemeral_port()
+    ephemeral_socket = get_ephemeral_port()
 
+    try:        
         register_node(ephemeral_socket)
         register_files(ephemeral_socket)
 
@@ -104,7 +104,8 @@ def connect_to_tracker():
         print(f"Error connecting to tracker: {e}")
 
     finally:
-        ephemeral_socket.close()
+        if ephemeral_socket:
+            ephemeral_socket.close()
 
 # Thread-related functions
 def start_server_process(ip, port):
@@ -116,6 +117,7 @@ def start_server_process(ip, port):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((ip, port))
     server_socket.listen(5)
+
     print(f"Node listening on {ip}:{port}")
 
     try:
@@ -167,24 +169,24 @@ def handle_cli_input(this_ip, this_port):
                 print("Closing connection...")
                 break
 
-            elif command.startswith("REGISTTER_FILE"):
-                '''
-                input: REGISTER_FILE <file_name>
-                Send Request: REGISTTER_FILE <this_ip> <this_port> <file_name> <total_piece> <magnet_link>
-                '''
-                try:
-                    _, file_path = command.split() # Extract file path from command
-                    pieces_metadata = f_sys.split_file(file_path)  # Split the file and get metadata
-
-                    magnet_link = f_sys.generate_magnet_link(os.path.basename(file_path), pieces_metadata)
-
-                    request = f"{command} {magnet_link}"  
-                    client_socket.sendall(request.encode())  
-                    print(f"Sent request: {request}")
-                except Exception as e:
-                    print(f"Error processing REGISTER_FILE command: {e}")
-
             #Use for manual input files
+            # elif command.startswith("REGISTTER_FILE"):
+            #     '''
+            #     input: REGISTER_FILE <file_name>
+            #     Send Request: REGISTTER_FILE <this_ip> <this_port> <file_name> <total_piece> <magnet_link>
+            #     '''
+            #     try:
+            #         _, file_path = command.split() # Extract file path from command
+            #         pieces_metadata = f_sys.split_file(file_path)  # Split the file and get metadata
+
+            #         magnet_link = f_sys.generate_magnet_link(os.path.basename(file_path), pieces_metadata)
+
+            #         request = f"{command} {magnet_link}"  
+            #         client_socket.sendall(request.encode())  
+            #         print(f"Sent request: {request}")
+            #     except Exception as e:
+            #         print(f"Error processing REGISTER_FILE command: {e}")
+
             elif command.startswith("FIND_FILE"):
                 client_socket.sendall(command.encode())  #  FIND_FILE <file_name>
                 
@@ -229,6 +231,29 @@ def handle_cli_input(this_ip, this_port):
     finally:
         client_socket.close()
 
+#Cleaning up functions
+def cleaning_up(sig, frame):
+    print("Interrupt received, shutting down...")
+
+    ephemeral_socket = get_ephemeral_port()
+    ephemeral_socket.timeout(5)
+
+    # Send disconnect message to the tracker
+    try:
+
+        REQUEST = f"DISCONNECT_NODE {this_ip} {this_port}"
+        ephemeral_socket.sendall(REQUEST.encode('utf-8'))
+        print(f"Sent disconnect message: {REQUEST}")
+
+        RESPONSE = ephemeral_socket.recv(1024).decode('utf-8')
+        print(f"Server response: {RESPONSE}")
+
+    except Exception as e:
+        print(f"Error sending disconnect message: {e}")
+
+    finally:
+        ephemeral_socket.close()
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog="Client",
@@ -250,10 +275,18 @@ if __name__ == "__main__":
     print(f"Node IP detected: {pserver_ip}")
     print(f"Node Port specified: {pserver_port}")
 
+    #Khởi tạo Node
     assign_global(args.server_ip, args.server_port, args.root_folder, pserver_ip, pserver_port)
     connect_to_tracker()
 
-    server_thread = Thread(target=start_server_process, daemon=True, args=(pserver_ip, pserver_port))
-    CLI_thread = Thread(target=handle_cli_input, daemon=True, args=(tracker_ip, tracker_port, pserver_ip, pserver_port))   
+    server_thread = Thread(target=start_server_process, daemon=True, args=(pserver_ip, pserver_port)).start()
+    CLI_thread = Thread(target=handle_cli_input, daemon=True, args=(tracker_ip, tracker_port, pserver_ip, pserver_port)).start()
 
-    #Dọn thread, trả port, disconnect DO HERE
+    #Dọn thread, trả port, disconnect
+    signal.signal(signal.SIGINT, cleaning_up)
+    signal.signal(signal.SIGTERM, cleaning_up)
+
+    server_thread.join(timeout=1)
+    CLI_thread.join(timeout=1)
+    sys.exit(0)
+

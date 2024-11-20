@@ -8,8 +8,17 @@ def register_node(peer_ip, peer_port):
     try:
         conn = connect_db()
         cursor = conn.cursor()
+
+        # Check if the node already exists
+        cursor.execute("SELECT COUNT(*) FROM Nodes WHERE ip_address = ? AND port = ?", (peer_ip, peer_port))
+        if cursor.fetchone()[0] > 0:
+            print(f"Node with IP {peer_ip} and port {peer_port} already exists.")
+            return
+
+        # Insert the node if it doesn't exist
         cursor.execute("INSERT INTO Nodes (ip_address, port) VALUES (?, ?)", (peer_ip, peer_port))
         conn.commit()
+        print(f"Node with IP {peer_ip} and port {peer_port} registered successfully.")
     except Exception as e:
         print(f"Error in register_node: {e}")
     finally:

@@ -69,6 +69,30 @@ def initialize_database(db_name="tracker.db"):
     conn.close()
     print(f"Database '{db_name}' has been initialized!")
 
+def delete_all_data(db_name="tracker.db"):
+    """
+    Deletes all data from all tables in the database.
+
+    Args:
+        db_name (str): Name of the SQLite database file.
+    """
+    # Connect to the database
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+
+    # List of tables to clear
+    tables = ["Nodes", "Files", "Pieces", "PiecesNodes", "NodesFiles"]
+
+    # Delete all data from each table
+    for table in tables:
+        cursor.execute(f"DELETE FROM {table}")
+
+    # Commit changes and close the connection
+    conn.commit()
+    conn.close()
+    print(f"All data from '{db_name}' has been deleted!")
+
 # Main block to trigger the initialization
 if __name__ == "__main__":
     initialize_database()
+    delete_all_data()
