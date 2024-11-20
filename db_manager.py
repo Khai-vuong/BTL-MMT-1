@@ -28,8 +28,17 @@ def remove_node(peer_ip, peer_port):
     try:
         conn = connect_db()
         cursor = conn.cursor()
+
+        # Check if the node exists
+        cursor.execute("SELECT COUNT(*) FROM Nodes WHERE ip_address = ? AND port = ?", (peer_ip, peer_port))
+        if cursor.fetchone()[0] == 0:
+            print(f"Node with IP {peer_ip} and port {peer_port} does not exist.")
+            return
+
+        # Remove the node if it exists
         cursor.execute("DELETE FROM Nodes WHERE ip_address = ? AND port = ?", (peer_ip, peer_port))
         conn.commit()
+        print(f"Node with IP {peer_ip} and port {peer_port} removed successfully.")
     except Exception as e:
         print(f"Error in remove_node: {e}")
     finally:

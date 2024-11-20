@@ -5,13 +5,15 @@ import os
 import sys
 import signal
 import file_transfer as f_sys
-from threading import Thread
+from threading import Thread, Event
 
 root_path = './storage'
 tracker_ip = None
 tracker_port = None
 this_ip = None
 this_port = None
+
+stop_server = Event()
 
 #GETTERS
 def get_default_interface():
@@ -42,6 +44,7 @@ def get_ephemeral_port():
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.bind(("", 0))  # Bind to an ephemeral port
     client_socket.connect((tracker_ip, tracker_port))
+    client_socket.settimeout(5)
     return client_socket
 
 #INITIALIZERS
@@ -119,15 +122,17 @@ def start_server_process(ip, port):
     server_socket.listen(5)
 
     print(f"Node listening on {ip}:{port}")
+    global stop_server
 
     try:
-        while True:
+        while not stop_server.is_set():
             client_socket, client_addr = server_socket.accept()
             print(f"Accepted connection from {client_addr}")
 
             # Handle the client connection in a separate thread
             client_thread = Thread(target=handle_income_request, args=(client_socket,))
             client_thread.start()
+            client_thread.join()
     except Exception as e:
         print(f"Error in server process: {e}")
     finally:
@@ -138,8 +143,9 @@ def handle_income_request(client_conn):
     Handle the communication with a connected client.
     :param client_conn: The socket object for the client connection.
     """
+    global stop_server
     try:
-        while True:
+        while not stop_server.is_set():
             data = client_conn.recv(1024).decode("utf-8").strip()
             if not data:
                 print("Client disconnected.")
@@ -166,6 +172,7 @@ def handle_cli_input(this_ip, this_port):
             command = input("Node CLI >")
 
             if command.lower() == "exit":
+                stop_server.set()
                 print("Closing connection...")
                 break
 
@@ -233,20 +240,21 @@ def handle_cli_input(this_ip, this_port):
 
 #Cleaning up functions
 def cleaning_up(sig, frame):
+    global stop_server
+    stop_server.set()
     print("Interrupt received, shutting down...")
 
     ephemeral_socket = get_ephemeral_port()
-    ephemeral_socket.timeout(5)
-
     # Send disconnect message to the tracker
     try:
-
         REQUEST = f"DISCONNECT_NODE {this_ip} {this_port}"
         ephemeral_socket.sendall(REQUEST.encode('utf-8'))
         print(f"Sent disconnect message: {REQUEST}")
 
         RESPONSE = ephemeral_socket.recv(1024).decode('utf-8')
         print(f"Server response: {RESPONSE}")
+
+        sys.exit(0)
 
     except Exception as e:
         print(f"Error sending disconnect message: {e}")
@@ -270,6 +278,7 @@ if __name__ == "__main__":
     tracker_ip = args.server_ip
     tracker_port = args.server_port
 
+    #personal IP and port (this_ip, this_port)
     pserver_ip, pserver_port = get_default_interface()  # Automatically detect the node's IP
 
     print(f"Node IP detected: {pserver_ip}")
@@ -279,14 +288,19 @@ if __name__ == "__main__":
     assign_global(args.server_ip, args.server_port, args.root_folder, pserver_ip, pserver_port)
     connect_to_tracker()
 
-    server_thread = Thread(target=start_server_process, daemon=True, args=(pserver_ip, pserver_port)).start()
-    CLI_thread = Thread(target=handle_cli_input, daemon=True, args=(tracker_ip, tracker_port, pserver_ip, pserver_port)).start()
+    server_thread = Thread(target=start_server_process, daemon=False, args=(pserver_ip, pserver_port))
+    # CLI_thread = Thread(target=handle_cli_input, daemon=True, args=(pserver_ip, pserver_port))
+
+    server_thread.start()
+    # CLI_thread.start()
 
     #Dọn thread, trả port, disconnect
     signal.signal(signal.SIGINT, cleaning_up)
     signal.signal(signal.SIGTERM, cleaning_up)
 
-    server_thread.join(timeout=1)
-    CLI_thread.join(timeout=1)
+    server_thread.join()
+    # CLI_thread.join(timeout=1)
+
+    cleaning_up(None, None)
     sys.exit(0)
 

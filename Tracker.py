@@ -74,6 +74,7 @@ def start_tracker_process(conn, addr):
                 conn.sendall(json.dumps(response_json).encode('utf-8'))
 
             elif data.startswith("DISCONNECT"):
+                _, client_ip, client_port = data.split()
                 db.remove_node(client_ip, client_port)
                 conn.sendall("Node disconnected.".encode('utf-8'))
 
