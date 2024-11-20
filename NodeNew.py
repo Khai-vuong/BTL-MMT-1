@@ -161,11 +161,6 @@ def handle_income_request(client_conn):
     
 def handle_cli_input(this_ip, this_port):
     # Bind to an ephemeral port
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_socket.bind(("", 0))  # Bind to an ephemeral port
-    client_socket.connect((tracker_ip, tracker_port))
-    print(f"Connected to tracker at {tracker_ip}:{tracker_port}")
-
     print("You can now enter runtime commands. Type 'exit' to quit.")
     try:
         while True:
@@ -195,12 +190,22 @@ def handle_cli_input(this_ip, this_port):
             #         print(f"Error processing REGISTER_FILE command: {e}")
 
             elif command.startswith("FIND_FILE"):
-                client_socket.sendall(command.encode())  #  FIND_FILE <file_name>
-                
-                # Receive and parse server response
-                response = client_socket.recv(1024 * 20).decode('utf-8')
 
-                f_sys.parse_find_file_response(response)
+                client_socket = get_ephemeral_port()
+                try:
+                    _, file_name = command.split()
+                    request = f"FIND_FILE {file_name}"
+                    client_socket.sendall(request.encode('utf-8'))
+                    print(f"Sent request: {request}")
+
+                    response = client_socket.recv(1024).decode('utf-8')
+                    respone_json = f_sys.parse_find_file_response(response)
+                    print(f"Server response: {respone_json}")
+
+                except Exception as e:
+                    print(f"Error processing FIND_FILE command: {e}")
+                finally:
+                    client_socket.close()
 
             elif command.startswith("PING"):
                 try:
@@ -289,17 +294,17 @@ if __name__ == "__main__":
     connect_to_tracker()
 
     server_thread = Thread(target=start_server_process, daemon=False, args=(pserver_ip, pserver_port))
-    # CLI_thread = Thread(target=handle_cli_input, daemon=True, args=(pserver_ip, pserver_port))
+    CLI_thread = Thread(target=handle_cli_input, daemon=True, args=(pserver_ip, pserver_port))
 
     server_thread.start()
-    # CLI_thread.start()
+    CLI_thread.start()
 
     #Dọn thread, trả port, disconnect
     signal.signal(signal.SIGINT, cleaning_up)
     signal.signal(signal.SIGTERM, cleaning_up)
 
     server_thread.join()
-    # CLI_thread.join(timeout=1)
+    CLI_thread.join(timeout=1)
 
     cleaning_up(None, None)
     sys.exit(0)

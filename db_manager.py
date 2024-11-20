@@ -176,6 +176,6 @@ def print_pieces_nodes():
 def print_nodes_files():
     conn = connect_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM NodesFiles")
+    cursor.execute("SELECT node_id, file_id FROM NodesFiles")
     print(cursor.fetchall())
     conn.close()

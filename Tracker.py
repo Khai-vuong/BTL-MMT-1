@@ -56,10 +56,10 @@ def start_tracker_process(conn, addr):
 
             elif data.startswith("FIND_FILE"):
                 '''
-                input FIND_FILE <node_ip> <node_port> <file_name>
+                input FIND_FILE  <file_name>
                 output: message from the DB
                 '''
-                _, client_ip, client_ip, file_name = data.split()
+                _, file_name = data.split()
                 response = db.get_nodes_has_file(file_name)
                 
                 # Debug: Print the response from the database
