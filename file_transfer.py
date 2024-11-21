@@ -136,14 +136,15 @@ def download_piece(piece_index, peer_ip, peer_port, file_name, save_path):
     client_socket.settimeout(5)  # Timeout sau 5 giây nếu không nhận được dữ liệu
     try:
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client_socket.settimeout(5)  # Timeout sau 5 giây nếu không nhận được dữ liệu
         client_socket.connect((peer_ip, peer_port))
         
         # Yêu cầu mảnh từ peer
         request = f"REQUEST_PIECE {file_name} {piece_index}"
-        client_socket.sendall(request.encode())
+        client_socket.sendall(request.encode('utf-8'))
         
         # Nhận dữ liệu mảnh
-        piece_data = client_socket.recv(PIECESIZE)  # Blocking function, chờ cho đến khi nhận được dữ liệu
+        piece_data = client_socket.recv(PIECESIZE + 20)  # Dự phòng thêm 20 byte cho header
         if not piece_data:
             print(f"Failed to download piece {piece_index} from {peer_ip}:{peer_port}")
             return False
@@ -173,17 +174,21 @@ def download_file(file_name, nodes, magnet_link, total_pieces, save_path="downlo
 
     # Tải từng mảnh
     threads = []
+    total_nodes = len(nodes)  # Tổng số nodes
+
     for piece_index in range(total_pieces):
-        for node in nodes:
-            peer_ip = node["ip"]
-            peer_port = node["port"]
-            thread = threading.Thread(
-                target=download_piece,
-                args=(piece_index, peer_ip, peer_port, file_name, save_path)
-            )
-            threads.append(thread)
-            thread.start()
-            break  # Chỉ sử dụng 1 peer cho mỗi mảnh ở đây (có thể tối ưu hơn)
+        # Tính toán node sử dụng theo công thức (piece_index % total_nodes)
+        node_index = piece_index % total_nodes
+        peer_ip = nodes[node_index]["ip"]
+        peer_port = nodes[node_index]["port"]
+        
+        # Tạo và khởi động thread cho từng piece
+        thread = threading.Thread(
+            target=download_piece,
+            args=(piece_index, peer_ip, peer_port, file_name, save_path)
+        )
+        threads.append(thread)
+        thread.start()
 
     # Chờ tất cả các luồng tải xong
     for thread in threads:
@@ -200,3 +205,25 @@ def download_file(file_name, nodes, magnet_link, total_pieces, save_path="downlo
 
     print(f"Download completed! File saved at: {file_path}")
 
+def upload_piece(client_socket, file_name, piece_index):
+    """
+    Upload một mảnh cho client.
+    Logic generate nhìn rất sai nha
+    """
+    try:
+        piece_path = os.path.join("uploads", f"{file_name}.part{piece_index}")
+        if not os.path.isfile(piece_path):
+            print(f"Piece {piece_index} not found for file {file_name}.")
+            return False
+
+        with open(piece_path, "rb") as piece_file:
+            piece_data = piece_file.read()
+
+        # Gửi dữ liệu mảnh cho client
+        client_socket.sendall(piece_data)
+        print(f"Successfully uploaded piece {piece_index} of file {file_name}.")
+        return True
+
+    except Exception as e:
+        print(f"Error uploading piece {piece_index} of file {file_name}: {e}")
+        return False

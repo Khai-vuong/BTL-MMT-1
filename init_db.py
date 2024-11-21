@@ -37,7 +37,6 @@ def initialize_database(db_name="tracker.db"):
         pid INTEGER PRIMARY KEY,
         file_id INTEGER NOT NULL,
         piece_index INTEGER NOT NULL,
-        node_having INTEGER,
         FOREIGN KEY (file_id) REFERENCES Files(fid)
     )
     ''')
@@ -64,11 +63,19 @@ def initialize_database(db_name="tracker.db"):
     )
     ''')
 
+    # Create the Transactions table
     cursor.execute('''
-    CREATE TABLE IF NOT EXISTS ONLINES (
-        node_id INTEGER NOT NULL,
-        PRIMARY KEY (node_id),
-        FOREIGN KEY (node_id) REFERENCES Nodes(nid)
+    CREATE TABLE IF NOT EXISTS Transactions (
+        tid INTEGER PRIMARY KEY,
+        download_node INTEGER NOT NULL,
+        upload_node INTEGER NOT NULL,
+        file_id INTEGER NOT NULL,
+        piece_id INTEGER NOT NULL,
+
+        FOREIGN KEY (download_node) REFERENCES Nodes(nid),
+        FOREIGN KEY (upload_node) REFERENCES Nodes(nid),
+        FOREIGN KEY (file_id) REFERENCES Files(fid),
+        FOREIGN KEY (piece_id) REFERENCES Pieces(pid)
     )
     ''')
 
