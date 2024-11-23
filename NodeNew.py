@@ -152,16 +152,23 @@ def handle_income_request(client_conn):
     :param client_conn: The socket object for the client connection.
     """
     global stop_server
+    global root_path
     try:
         while not stop_server.is_set():
             data = client_conn.recv(1024).decode("utf-8").strip()
             if not data:
                 print("Client disconnected.")
                 break
-            print(f"Received from client: {data}")
 
-            # Echo the received data back to the client
-            client_conn.sendall(data.encode("utf-8"))
+            print(f"Received from client: {data}") # Có thể bỏ
+            if data.startswith("REQUEST_PIECE"):
+                '''
+                REQUEST_PIECE <file_name> <piece_index>
+                '''
+                _, file_name, piece_index = data.split()
+                f_sys.send_piece(root_path, client_conn, file_name, int(piece_index))
+
+
     except Exception as e:
         print(f"Error handling client: {e}")
     finally:
@@ -170,6 +177,7 @@ def handle_income_request(client_conn):
 def handle_cli_input(this_ip, this_port):
     # Bind to an ephemeral port
     print("You can now enter runtime commands. Type 'exit' to quit.")
+    global root_path
 
     while True:
         command = input("Node CLI >")
@@ -180,7 +188,10 @@ def handle_cli_input(this_ip, this_port):
                 print("Closing connection...")
                 break    
 
-            elif command.startswith("FIND_FILE"):                
+            elif command.startswith("FIND_FILE"):       
+                '''
+                FIND_FILE <file_name>
+                '''         
                 try:
                     client_socket = get_ephemeral_socket()
                     _, file_name = command.split()
@@ -196,6 +207,35 @@ def handle_cli_input(this_ip, this_port):
                     print(f"Error processing FIND_FILE command: {e}")
                 finally:
                       client_socket.close()
+
+            elif command.startswith("REQUEST_FILE"):
+                '''
+                REQUEST_FILE <file_name>
+                '''    
+                try:
+                    client_socket = get_ephemeral_socket()
+                    _, file_name = command.split()
+                    request = f"FIND_FILE {file_name}"
+
+                    client_socket.sendall(request.encode('utf-8'))
+                    print(f"Sent request: {request}")
+
+                    response = client_socket.recv(1024 * 20).decode('utf-8')
+
+
+                    respones_json = f_sys.parse_find_file_response(response)
+                    print('JSON object retrived')
+
+                    nodes = respones_json.get("nodes", [])                                    
+                    magnet_link = respone_json.get("magnet_link")
+                    total_piece = respone_json.get("total_piece")
+
+                    f_sys.download_file(file_name, nodes, magnet_link, total_piece, root_path)
+
+                except Exception as e:
+                    print(f"Error processing REQUEST_FILE command: {e}")
+                finally:
+                    client_socket.close()
 
         except Exception as e:
             print(f"Error in runtime commands: {e}")

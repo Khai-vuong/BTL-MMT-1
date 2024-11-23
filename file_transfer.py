@@ -8,6 +8,16 @@ import urllib.parse
 import concurrent.futures
 PIECESIZE = 1024
 
+def get_ephemeral_socket(Node_ip, Node_port):
+    """
+    Establish a connection to a Node using an ephemeral port.
+    :return: A connected socket object.
+    """
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.bind(("", 0))  # Bind to an ephemeral port
+    client_socket.connect((Node_ip, Node_port))
+    client_socket.settimeout(10)
+    return client_socket
 
 def generate_magnet_link(file_name, pieces_metadata):
     """
@@ -123,7 +133,11 @@ def parse_find_file_response(response):
         else:
             print("No nodes have the requested file.")
 
-        return response_json
+        return {
+            "nodes": nodes,
+            "magnet_link": magnet_link,
+            "total_piece": total_piece
+        } #Học thêm về python JSON
     except json.JSONDecodeError:
         print("Error decoding server response. Raw response:")
         print(response)
@@ -133,18 +147,17 @@ def download_piece(piece_index, peer_ip, peer_port, file_name, save_path):
     """
     Tải một mảnh từ peer.
     """
-    client_socket.settimeout(5)  # Timeout sau 5 giây nếu không nhận được dữ liệu
+    download_socket = get_ephemeral_socket(peer_ip, peer_port)
     try:
-        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client_socket.settimeout(5)  # Timeout sau 5 giây nếu không nhận được dữ liệu
-        client_socket.connect((peer_ip, peer_port))
-        
+        print(f"Downloading piece {piece_index} from {peer_ip}:{peer_port}...")
+
+
         # Yêu cầu mảnh từ peer
         request = f"REQUEST_PIECE {file_name} {piece_index}"
-        client_socket.sendall(request.encode('utf-8'))
+        download_socket.sendall(request.encode('utf-8'))
         
         # Nhận dữ liệu mảnh
-        piece_data = client_socket.recv(PIECESIZE + 20)  # Dự phòng thêm 20 byte cho header
+        piece_data = download_socket.recv(PIECESIZE + 20)  # Dự phòng thêm 20 byte cho header
         if not piece_data:
             print(f"Failed to download piece {piece_index} from {peer_ip}:{peer_port}")
             return False
@@ -164,7 +177,7 @@ def download_piece(piece_index, peer_ip, peer_port, file_name, save_path):
         print(f"Error downloading piece {piece_index} from {peer_ip}:{peer_port}: {e}")
         return False
     finally:
-        client_socket.close()
+        download_socket.close()
 
 def download_file(file_name, nodes, magnet_link, total_pieces, save_path="downloads"):
     """
@@ -176,11 +189,15 @@ def download_file(file_name, nodes, magnet_link, total_pieces, save_path="downlo
     threads = []
     total_nodes = len(nodes)  # Tổng số nodes
 
+    print("debug + " + type(nodes))
+
     for piece_index in range(total_pieces):
         # Tính toán node sử dụng theo công thức (piece_index % total_nodes)
         node_index = piece_index % total_nodes
         peer_ip = nodes[node_index]["ip"]
         peer_port = nodes[node_index]["port"]
+
+        print('debug1')
         
         # Tạo và khởi động thread cho từng piece
         thread = threading.Thread(
@@ -204,23 +221,40 @@ def download_file(file_name, nodes, magnet_link, total_pieces, save_path="downlo
             os.remove(piece_path)  # Xóa mảnh sau khi ghép xong
 
     print(f"Download completed! File saved at: {file_path}")
-
-def upload_piece(client_socket, file_name, piece_index):
+    
+def upload_piece(root_folder, upload_socket, file_name, piece_index, piece_size=1024):
     """
-    Upload một mảnh cho client.
-    Logic generate nhìn rất sai nha
+    Upload a specific piece of a file to the client.
+    
+    Args:
+        root_folder (str): The root folder where the file pieces are stored.
+        client_socket (socket): The client socket to send the piece to.
+        file_name (str): The name of the file.
+        piece_index (int): The index of the piece to upload.
+        piece_size (int): The size of each piece in bytes (default is 1024 bytes).
+    
+    Returns:
+        bool: True if the piece was successfully uploaded, False otherwise.
     """
     try:
-        piece_path = os.path.join("uploads", f"{file_name}.part{piece_index}")
-        if not os.path.isfile(piece_path):
-            print(f"Piece {piece_index} not found for file {file_name}.")
+        file_path = os.path.join(root_folder, file_name)
+        if not os.path.isfile(file_path):
+            upload_socket.sendall(f"File {file_name} not found.".encode('utf-8)'))
             return False
 
-        with open(piece_path, "rb") as piece_file:
-            piece_data = piece_file.read()
+        # Calculate the byte range for the piece
+        start_byte = piece_index * piece_size
 
-        # Gửi dữ liệu mảnh cho client
-        client_socket.sendall(piece_data)
+        with open(file_path, "rb") as file:
+            file.seek(start_byte)
+            piece_data = file.read(piece_size)
+
+        if not piece_data:
+            upload_socket.sendall(f"Piece {piece_index} is out of range for file {file_name}.".encode('utf-8'))
+            return False
+
+        # Send the piece data to the client
+        upload_socket.sendall(piece_data)
         print(f"Successfully uploaded piece {piece_index} of file {file_name}.")
         return True
 
