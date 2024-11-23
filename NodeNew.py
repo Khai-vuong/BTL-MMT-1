@@ -221,14 +221,12 @@ def handle_cli_input(this_ip, this_port):
                     print(f"Sent request: {request}")
 
                     response = client_socket.recv(1024 * 20).decode('utf-8')
-
-
                     respones_json = f_sys.parse_find_file_response(response)
                     print('JSON object retrived')
 
-                    nodes = respones_json.get("nodes", [])                                    
-                    magnet_link = respone_json.get("magnet_link")
-                    total_piece = respone_json.get("total_piece")
+                    nodes = respones_json['nodes']
+                    magnet_link = respones_json['magnet_link']
+                    total_piece = respones_json['total_piece']
 
                     f_sys.download_file(file_name, nodes, magnet_link, total_piece, root_path)
 
