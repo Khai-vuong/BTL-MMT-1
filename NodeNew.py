@@ -6,6 +6,7 @@ import sys
 import signal
 import file_transfer as f_sys
 from threading import Thread, Event
+from time import sleep
 
 root_path = './storage'
 tracker_ip = None
@@ -147,6 +148,39 @@ def connect_to_tracker():
 '''
 Thread-related functions
 '''
+def download_file(file_name):
+    global root_path
+
+    try:
+        client_socket = get_ephemeral_socket()
+        request = f"FIND_FILE {file_name}"
+
+        client_socket.sendall(request.encode('utf-8'))
+        print(f"Sent request: {request}")
+
+        response = client_socket.recv(1024 * 20).decode('utf-8')
+        respones_json = f_sys.parse_find_file_response(response)
+        print('JSON object retrived')
+
+        f_sys.inscpect(respones_json)
+
+        client_socket.close()  #Close for other connections
+
+        nodes = respones_json['nodes']                  #Array of [ip, port], eg: [["192.168.56.104", 1100], ["192.168.56.106", 1100]]
+        magnet_link = respones_json['magnet_link']      #String
+        total_piece = respones_json['total_piece']      #Int
+
+        success = f_sys.download_file(file_name, nodes, magnet_link, total_piece, root_path)
+
+        #Declare new file to the tracker
+        if success:
+            register_one_file(file_name)
+
+    except Exception as e:
+        print(f"Error processing REQUEST_FILE command: {e}")
+    finally:
+        client_socket.close()
+
 def start_server_process(this_ip, this_port):   #terminated
     """
     Start a server process that continuously listens for incoming connections.
@@ -253,6 +287,8 @@ def handle_cli_input(this_ip, this_port):
                     respones_json = f_sys.parse_find_file_response(response)
                     print('JSON object retrived')
 
+                    client_socket.close() #Close for other connections  
+
                     f_sys.inscpect(respones_json)
 
                     nodes = respones_json['nodes']                  #Array of [ip, port], eg: [["192.168.56.104", 1100], ["192.168.56.106", 1100]]
@@ -269,6 +305,30 @@ def handle_cli_input(this_ip, this_port):
                     print(f"Error processing REQUEST_FILE command: {e}")
                 finally:
                     client_socket.close()
+
+            elif command.startswith("REQUEST_MUL"):
+                '''
+                REQUEST_FILE <file_1> <file_2>
+                '''
+                _, file_1, file_2 = command.split()
+
+                thread_1 = Thread(target=download_file, args=(file_1,))
+                thread_2 = Thread(target=download_file, args=(file_2,))
+
+                thread_1.start()
+                thread_2.start()
+
+                thread_1.join()
+                thread_2.join()
+
+                print(f'Download files: {file_1}, {file_2}')
+                
+            elif command.startswith("ADD_FILE"):
+                '''
+                ADD_FILE <file_name>
+                '''
+                _, file_name = command.split()
+                register_one_file(file_name)
 
         except Exception as e:
             print(f"Error in runtime commands: {e}")

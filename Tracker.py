@@ -155,7 +155,7 @@ if __name__ == "__main__":
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((hostip, port))
-    server_socket.listen(10)     # Listen at most 10 connections
+    server_socket.listen(20)     # Listen at most 10 connections
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
