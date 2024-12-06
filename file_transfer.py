@@ -9,6 +9,9 @@ from time import sleep
 import concurrent.futures
 PIECESIZE = 1024
 
+'''
+Debug functions
+'''
 def inscpect(obj):
     if isinstance(obj, (dict, list)):
         print(json.dumps(obj, indent=2))
@@ -16,6 +19,9 @@ def inscpect(obj):
         print(type(obj))
         print(obj)
 
+'''
+Socket related functions
+'''
 def get_ephemeral_socket(Node_ip, Node_port):
     """
     Establish a connection to a Node using an ephemeral port.
@@ -27,6 +33,10 @@ def get_ephemeral_socket(Node_ip, Node_port):
     client_socket.settimeout(20)
     return client_socket
 
+
+'''
+Not yet touched (IDK what it does)
+'''
 def generate_magnet_link(file_name, pieces_metadata):
     """
     Generates a magnet link for a file based on its metadata.
@@ -90,6 +100,10 @@ def split_file(file_name, piece_size=PIECESIZE):  # Default piece size = 1 MB
     
     return metadata
 
+
+'''
+File related functions
+'''
 def find_file(tracker_ip, tracker_port, file_name):
     """
     Returns:
@@ -200,6 +214,13 @@ def download_file(file_name, nodes, magnet_link, total_pieces, save_path="downlo
         total_pieces (int): 
         save_path (str):
     """
+    # Kiểm tra nếu file đã tồn tại
+    file_path = os.path.join(save_path, file_name)
+    if os.path.exists(file_path):
+        print(f"I already have file {file_path}")
+        return False
+    
+
     os.makedirs(save_path, exist_ok=True)
 
     # Tải từng mảnh
@@ -229,15 +250,30 @@ def download_file(file_name, nodes, magnet_link, total_pieces, save_path="downlo
     with open(file_path, "wb") as output_file:
         for piece_index in range(total_pieces):
             piece_path = os.path.join(save_path, f"{file_name}.part{piece_index}")
+
+            # Đọc mảnh và ghi vào file hoàn chỉnh
             if os.path.exists(piece_path):
                 with open(piece_path, "rb") as piece_file:
                     output_file.write(piece_file.read())
                 os.remove(piece_path)  # Delete the piece after combining
+
+            #M Piece tải không thành công. Phần này Sync
             else:
-                print(f"Piece {piece_path} not found.")
-                return False
+                print(f"Piece {piece_index} is missing. Retrying download...")
+                success = False
+                for _ in range(3):  # Retry up to 3 times
+                    node_index = piece_index % total_nodes
+                    peer_ip = nodes[node_index][0]
+                    peer_port = nodes[node_index][1]
+                    success = download_piece(piece_index, peer_ip, peer_port, file_name, save_path)
+                    if success:
+                        break
+                if not success:
+                    print(f"Failed to download piece {piece_index} after multiple attempts.")
+                    return False
 
     print(f"Download completed! File saved at: {file_path}")
+    return True
     
 def upload_piece(root_folder, upload_socket, file_name, piece_index, piece_size=1024):
     """

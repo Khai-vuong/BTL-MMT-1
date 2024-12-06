@@ -36,9 +36,17 @@ def remove_node(peer_ip, peer_port):
             return
 
         # Remove the node if it exists
+
+
+        cursor.execute("SELECT nid FROM Nodes WHERE ip_address = ? AND port = ?", (peer_ip, peer_port))
+        nid = cursor.fetchone()[0]
+
+        cursor.execute("DELETE FROM NodesFiles WHERE node_id = ?", (nid,))
         cursor.execute("DELETE FROM Nodes WHERE ip_address = ? AND port = ?", (peer_ip, peer_port))
         conn.commit()
         print(f"Node with IP {peer_ip} and port {peer_port} removed successfully.")
+
+
     except Exception as e:
         print(f"Error in remove_node: {e}")
     finally:
@@ -52,26 +60,38 @@ def register_file(file_name, total_piece, node_ip, node_port, magnet_link):
 
         # Kiểm tra file đã tồn tại chưa
         cursor.execute("SELECT COUNT(*) FROM Files WHERE file_name = ?", (file_name,))
+
+        # Đã tồn tại file -> Nhiều Node có file đó.
         if cursor.fetchone()[0] > 0:
-            return "File already exists."
+            # Tìm node ID dựa trên IP và port
+            cursor.execute("SELECT nid FROM Nodes WHERE ip_address = ? AND port = ?", (node_ip, node_port))
+            node = cursor.fetchone()
+            if not node:
+                return "Node not found."
 
-        # Thêm file mới vào bảng Files
-        cursor.execute('''
-        INSERT INTO Files (file_name, total_piece, magnet_link) 
-        VALUES (?, ?, ?)
-        ''', (file_name, total_piece, magnet_link))
-        conn.commit()
+            nid = node[0]
+            add_file_to_node(nid, file_name)
 
-        # Tìm node ID dựa trên IP và port
-        cursor.execute("SELECT nid FROM Nodes WHERE ip_address = ? AND port = ?", (node_ip, node_port))
-        node = cursor.fetchone()
-        if not node:
-            return "Node not found."
+            return "File registered and added to the node!"
 
-        nid = node[0]
-        add_file_to_node(nid, file_name)
+        else:
+            # Thêm file mới vào bảng Files
+            cursor.execute('''
+            INSERT INTO Files (file_name, total_piece, magnet_link) 
+            VALUES (?, ?, ?)
+            ''', (file_name, total_piece, magnet_link))
+            conn.commit()
 
-        return "File registered and added to the node!"
+            # Tìm node ID dựa trên IP và port
+            cursor.execute("SELECT nid FROM Nodes WHERE ip_address = ? AND port = ?", (node_ip, node_port))
+            node = cursor.fetchone()
+            if not node:
+                return "Node not found."
+
+            nid = node[0]
+            add_file_to_node(nid, file_name)
+
+            return "File registered and added to the node!"
     except Exception as e:
         print(f"Error in register_file: {e}")
         return "Error registering file."

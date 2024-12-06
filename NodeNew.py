@@ -57,7 +57,9 @@ def get_ephemeral_socket():
 #     client_socket.settimeout(10)
 #     return client_socket
 
-#INITIALIZERS
+'''
+INITIALIZERS
+'''
 def assign_global(server_ip, server_port, root_folder, node_ip, node_port):
     global tracker_ip, tracker_port, root_path, this_ip, this_port
     root_path = root_folder
@@ -106,6 +108,28 @@ def register_files(ephemeral_socket):
             except Exception as e:
                 print(f"Error registering file {file_name}: {e}")
 
+def register_one_file(file_name):
+    global root_path, this_ip, this_port
+    ephemeral_socket = get_ephemeral_socket()
+
+    file_path = os.path.join(root_path, file_name)
+    if os.path.isfile(file_path):
+        try:
+            pieces_metadata = f_sys.split_file(file_path)  # Split the file and get metadata
+            magnet_link = f_sys.generate_magnet_link(os.path.basename(file_path), pieces_metadata)
+            total_piece = len(pieces_metadata)
+
+            request = f"REGISTER_FILE {this_ip} {this_port} {file_name} {total_piece} {magnet_link}"
+
+            ephemeral_socket.sendall(request.encode('utf-8'))
+            print(f"Registered file: {file_name} with magnet link: {magnet_link}")
+
+            respone = ephemeral_socket.recv(1024).decode('utf-8')
+            print(f"Server response: {respone}")
+            
+        except Exception as e:
+            print(f"Error registering file {file_name}: {e}")
+
 def connect_to_tracker():
     ephemeral_socket = get_ephemeral_socket()
 
@@ -120,7 +144,9 @@ def connect_to_tracker():
         if ephemeral_socket:
             ephemeral_socket.close()
 
-# Thread-related functions
+'''
+Thread-related functions
+'''
 def start_server_process(this_ip, this_port):   #terminated
     """
     Start a server process that continuously listens for incoming connections.
@@ -233,11 +259,11 @@ def handle_cli_input(this_ip, this_port):
                     magnet_link = respones_json['magnet_link']      #String
                     total_piece = respones_json['total_piece']      #Int
 
-                    f_sys.download_file(file_name, nodes, magnet_link, total_piece, root_path)
+                    success = f_sys.download_file(file_name, nodes, magnet_link, total_piece, root_path)
 
                     #Declare new file to the tracker
-                    register_files(get_ephemeral_socket()) #Maybe register already have files.
-
+                    if success:
+                        register_one_file(file_name)
 
                 except Exception as e:
                     print(f"Error processing REQUEST_FILE command: {e}")
@@ -316,7 +342,7 @@ if __name__ == "__main__":
     #Try this model! the server model as the main thread, and the CLI as the sub-thread (daemon)
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((pserver_ip, pserver_port))
-    server_socket.listen(35)
+    server_socket.listen(60)
 
     print(f"Node listening on {this_ip}:{this_port}")
 

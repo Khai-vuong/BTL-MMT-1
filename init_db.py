@@ -58,7 +58,7 @@ def initialize_database(db_name="tracker.db"):
         file_id INTEGER NOT NULL,
         node_id INTEGER NOT NULL,
         PRIMARY KEY (file_id, node_id),
-        FOREIGN KEY (file_id) REFERENCES Files(fid),
+        FOREIGN KEY (file_id) REFERENCES Files(fid) ON DELETE CASCADE,
         FOREIGN KEY (node_id) REFERENCES Nodes(nid) ON DELETE CASCADE
     )
     ''')
