@@ -96,7 +96,7 @@ def delete_all_data(db_name="tracker.db"):
     cursor = conn.cursor()
 
     # List of tables to clear
-    tables = ["Nodes", "Files", "Pieces", "PiecesNodes", "NodesFiles"]
+    tables = ["Nodes", "Files", "Pieces", "PiecesNodes", "NodesFiles", "Transactions"]
 
     # Delete all data from each table
     for table in tables:

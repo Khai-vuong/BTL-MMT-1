@@ -4,9 +4,17 @@ import socket
 import json
 import threading
 import urllib.parse
+from time import sleep
 
 import concurrent.futures
 PIECESIZE = 1024
+
+def inscpect(obj):
+    if isinstance(obj, (dict, list)):
+        print(json.dumps(obj, indent=2))
+    else:
+        print(type(obj))
+        print(obj)
 
 def get_ephemeral_socket(Node_ip, Node_port):
     """
@@ -16,7 +24,7 @@ def get_ephemeral_socket(Node_ip, Node_port):
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.bind(("", 0))  # Bind to an ephemeral port
     client_socket.connect((Node_ip, Node_port))
-    client_socket.settimeout(10)
+    client_socket.settimeout(20)
     return client_socket
 
 def generate_magnet_link(file_name, pieces_metadata):
@@ -111,8 +119,9 @@ def find_file(tracker_ip, tracker_port, file_name):
 
 def parse_find_file_response(response):
     """
+    Input: A JSON string containing the response from the tracker.
     Returns:
-        dict: A dictionary containing the nodes, magnet_link, and total_pieces.
+        dict: A dictionary (JSON object) containing the nodes, magnet_link, and total_pieces.
     """
     try:
         response_json = json.loads(response)  # Parse the JSON response
@@ -157,7 +166,7 @@ def download_piece(piece_index, peer_ip, peer_port, file_name, save_path):
         download_socket.sendall(request.encode('utf-8'))
         
         # Nhận dữ liệu mảnh
-        piece_data = download_socket.recv(PIECESIZE + 20)  # Dự phòng thêm 20 byte cho header
+        piece_data = download_socket.recv(PIECESIZE)  # Dự phòng thêm 20 byte cho header
         if not piece_data:
             print(f"Failed to download piece {piece_index} from {peer_ip}:{peer_port}")
             return False
@@ -168,6 +177,8 @@ def download_piece(piece_index, peer_ip, peer_port, file_name, save_path):
             f.write(piece_data)
         
         print(f"Successfully downloaded piece {piece_index} from {peer_ip}:{peer_port}")
+        sleep(0.3)  # Delay to prevent spamming the console
+
         return True
     
     except socket.timeout:
@@ -182,6 +193,12 @@ def download_piece(piece_index, peer_ip, peer_port, file_name, save_path):
 def download_file(file_name, nodes, magnet_link, total_pieces, save_path="downloads"):
     """
     Tải toàn bộ file từ danh sách các nodes được cung cấp.
+    Inputs:
+        file_name (str):
+        nodes (list): eg: [["192.168.56.104", 1100], ["192.168.56.106", 1100]]
+        magnet_link (str): 
+        total_pieces (int): 
+        save_path (str):
     """
     os.makedirs(save_path, exist_ok=True)
 
@@ -189,15 +206,11 @@ def download_file(file_name, nodes, magnet_link, total_pieces, save_path="downlo
     threads = []
     total_nodes = len(nodes)  # Tổng số nodes
 
-    print("debug + " + type(nodes))
-
     for piece_index in range(total_pieces):
         # Tính toán node sử dụng theo công thức (piece_index % total_nodes)
         node_index = piece_index % total_nodes
-        peer_ip = nodes[node_index]["ip"]
-        peer_port = nodes[node_index]["port"]
-
-        print('debug1')
+        peer_ip = nodes[node_index][0]
+        peer_port = nodes[node_index][1]
         
         # Tạo và khởi động thread cho từng piece
         thread = threading.Thread(
@@ -216,15 +229,19 @@ def download_file(file_name, nodes, magnet_link, total_pieces, save_path="downlo
     with open(file_path, "wb") as output_file:
         for piece_index in range(total_pieces):
             piece_path = os.path.join(save_path, f"{file_name}.part{piece_index}")
-            with open(piece_path, "rb") as piece_file:
-                output_file.write(piece_file.read())
-            os.remove(piece_path)  # Xóa mảnh sau khi ghép xong
+            if os.path.exists(piece_path):
+                with open(piece_path, "rb") as piece_file:
+                    output_file.write(piece_file.read())
+                os.remove(piece_path)  # Delete the piece after combining
+            else:
+                print(f"Piece {piece_path} not found.")
+                return False
 
     print(f"Download completed! File saved at: {file_path}")
     
 def upload_piece(root_folder, upload_socket, file_name, piece_index, piece_size=1024):
     """
-    Upload a specific piece of a file to the client.
+    Upload a specific piece of a file (in bits) to the client.
     
     Args:
         root_folder (str): The root folder where the file pieces are stored.
@@ -239,7 +256,7 @@ def upload_piece(root_folder, upload_socket, file_name, piece_index, piece_size=
     try:
         file_path = os.path.join(root_folder, file_name)
         if not os.path.isfile(file_path):
-            upload_socket.sendall(f"File {file_name} not found.".encode('utf-8)'))
+            upload_socket.sendall(f"File {file_name} not found.".encode('utf-8'))
             return False
 
         # Calculate the byte range for the piece

@@ -25,18 +25,18 @@ def get_default_interface():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.bind(("", 0))  # Bind to an ephemeral port
-        s.connect(("8.8.8.8", 80))  # Simulate a connection to get the IP
+        s.connect(("8.8.8.8", 1))  # Simulate a connection to get the IP
         ip = s.getsockname()[0]
-        port = 10000  # Default port
+        port = 1100  # Default port
     except Exception:
-        ip, port = "192.168.56.104", 10000
+        ip, port = "192.168.56.104", 200
     finally:
         s.close()
     return ip, port
 
 def get_ephemeral_socket():
     """
-    Establish a connection to the tracker using an ephemeral port.
+    Establish a connection TO THE TRACKER using an ephemeral port.
     :return: A connected socket object.
     """
     global tracker_ip, tracker_port
@@ -47,13 +47,15 @@ def get_ephemeral_socket():
     client_socket.settimeout(10)
     return client_socket
 
-# def get_ephemeral_socket():
-#     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-#     s.bind(('', 0))
-#     s.listen(1)
-#     port = s.getsockname()[1]
-#     s.close()
-#     return port
+# def get_ephemeral_socket(ip, port):
+#     """
+#     Establish a connection to the targeted peer using an ephemeral port.
+#     """
+#     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+#     client_socket.bind(('', 0))
+#     client_socket.connect((ip, port))
+#     client_socket.settimeout(10)
+#     return client_socket
 
 #INITIALIZERS
 def assign_global(server_ip, server_port, root_folder, node_ip, node_port):
@@ -119,17 +121,17 @@ def connect_to_tracker():
             ephemeral_socket.close()
 
 # Thread-related functions
-def start_server_process(ip, port):
+def start_server_process(this_ip, this_port):   #terminated
     """
     Start a server process that continuously listens for incoming connections.
     :param ip: IP address to bind the server to.
     :param port: Port to bind the server to.
     """
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind((ip, port))
+    server_socket.bind((this_ip, this_port))
     server_socket.listen(5)
 
-    print(f"Node listening on {ip}:{port}")
+    print(f"Node listening on {this_ip}:{this_port}")
     global stop_server
 
     try:
@@ -166,7 +168,7 @@ def handle_income_request(client_conn):
                 REQUEST_PIECE <file_name> <piece_index>
                 '''
                 _, file_name, piece_index = data.split()
-                f_sys.send_piece(root_path, client_conn, file_name, int(piece_index))
+                f_sys.upload_piece(root_path, client_conn, file_name, int(piece_index))
 
 
     except Exception as e:
@@ -201,7 +203,8 @@ def handle_cli_input(this_ip, this_port):
 
                     response = client_socket.recv(1024 * 20).decode('utf-8')
                     respone_json = f_sys.parse_find_file_response(response)
-                    print(f"Server response: {respone_json}")
+                    print(f"Server response: ")
+                    f_sys.inscpect(respone_json)
 
                 except Exception as e:
                     print(f"Error processing FIND_FILE command: {e}")
@@ -224,11 +227,17 @@ def handle_cli_input(this_ip, this_port):
                     respones_json = f_sys.parse_find_file_response(response)
                     print('JSON object retrived')
 
-                    nodes = respones_json['nodes']
-                    magnet_link = respones_json['magnet_link']
-                    total_piece = respones_json['total_piece']
+                    f_sys.inscpect(respones_json)
+
+                    nodes = respones_json['nodes']                  #Array of [ip, port], eg: [["192.168.56.104", 1100], ["192.168.56.106", 1100]]
+                    magnet_link = respones_json['magnet_link']      #String
+                    total_piece = respones_json['total_piece']      #Int
 
                     f_sys.download_file(file_name, nodes, magnet_link, total_piece, root_path)
+
+                    #Declare new file to the tracker
+                    register_files(get_ephemeral_socket()) #Maybe register already have files.
+
 
                 except Exception as e:
                     print(f"Error processing REQUEST_FILE command: {e}")
@@ -237,7 +246,6 @@ def handle_cli_input(this_ip, this_port):
 
         except Exception as e:
             print(f"Error in runtime commands: {e}")
-
 
 #Cleaning up functions
 def cleaning_up(sig, frame):
@@ -269,15 +277,18 @@ if __name__ == "__main__":
         description="Connect to a pre-declared server and register as a node.",
         epilog="!!!Ensure the server is running and listening before starting!!!",
     )
-    parser.add_argument("--server-ip", required=True, help="IP address of the server.")
-    parser.add_argument("--server-port", type=int, required=True, help="Port of the server.")
+    # parser.add_argument("--server-ip", required=True, help="IP address of the server.")
+    # parser.add_argument("--server-port", type=int, required=True, help="Port of the server.")
     parser.add_argument("--root-folder", required=True, help="Root folder.")
 
     args = parser.parse_args()
 
     # Extract arguments
-    tracker_ip = args.server_ip
-    tracker_port = args.server_port
+    # tracker_ip = args.server_ip
+    # tracker_port = args.server_port
+
+    tracker_ip = '192.168.56.105'
+    tracker_port = 22236
 
     #personal IP and port (this_ip, this_port)
     pserver_ip, pserver_port = get_default_interface()  # Automatically detect the node's IP
@@ -286,21 +297,36 @@ if __name__ == "__main__":
     print(f"Node Port specified: {pserver_port}")
 
     #Khởi tạo Node
-    assign_global(args.server_ip, args.server_port, args.root_folder, pserver_ip, pserver_port)
+    assign_global(tracker_ip, tracker_port, args.root_folder, pserver_ip, pserver_port)
     connect_to_tracker()
 
-    server_thread = Thread(target=start_server_process, daemon=False, args=(pserver_ip, pserver_port))
+    # server_thread = Thread(target=start_server_process, daemon=False, args=(pserver_ip, pserver_port))
     CLI_thread = Thread(target=handle_cli_input, daemon=True, args=(pserver_ip, pserver_port))
 
-    server_thread.start()
+    # server_thread.start()
     CLI_thread.start()
 
     #Dọn thread, trả port, disconnect
     signal.signal(signal.SIGINT, cleaning_up)
     signal.signal(signal.SIGTERM, cleaning_up)
 
-    server_thread.join()
-    CLI_thread.join()
+    # server_thread.join()
+    # CLI_thread.join()
+
+    #Try this model! the server model as the main thread, and the CLI as the sub-thread (daemon)
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind((pserver_ip, pserver_port))
+    server_socket.listen(35)
+
+    print(f"Node listening on {this_ip}:{this_port}")
+
+    while True:
+        print("Waiting for connection...")
+        conn, addr = server_socket.accept()      #Lệnh này mang tính blocking, chờ kết nối từ client
+        node_thread = Thread(target=handle_income_request, args=(conn,))
+        node_thread.start()
+        node_thread.join()
+        
 
     cleaning_up(None, None)
     sys.exit(0)

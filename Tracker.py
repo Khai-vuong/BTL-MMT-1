@@ -161,6 +161,8 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, signal_handler)
 
     while True:
+        print("Waiting for connection...")
         conn, addr = server_socket.accept()      #Lệnh này mang tính blocking, chờ kết nối từ client
         node_thread = Thread(target=start_tracker_process, args=(conn, addr))
         node_thread.start()
+        node_thread.join()
