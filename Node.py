@@ -5,29 +5,18 @@ import os
 import sys
 import signal
 import file_transfer as f_sys
-from threading import Thread
+from threading import Thread, Event
+from time import sleep
 
-client_socket = None        # To connect to the server
-root_path ='./storage'      # Path to the storage folder
+root_path = './storage'
+tracker_ip = None
+tracker_port = None
+this_ip = None
+this_port = None
 
-def signal_handler(sig, frame):
-    global client_socket
-    print('Terminating the Node...')
+stop_server = Event()
 
-    request = "DISCONNECT"
-    client_socket.sendall(request.encode('utf-8'))
-    response = client_socket.recv(1024).decode('utf-8')
-    print(f"EXIT response: {response}")
-
-    client_socket.close()
-    sys.exit(0)
-
-def assign_global(cli_socket, root):
-    global client_socket
-    global root_path
-    client_socket = cli_socket
-    root_path = root
-
+#GETTERS
 def get_default_interface():
     """
     Get the default IP address and an available port of the machine.
@@ -37,51 +26,66 @@ def get_default_interface():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.bind(("", 0))  # Bind to an ephemeral port
-        s.connect(("8.8.8.8", 80))  # Simulate a connection to get the IP
+        s.connect(("8.8.8.8", 1))  # Simulate a connection to get the IP
         ip = s.getsockname()[0]
-        port = 10000  # Default port
+        port = 1100  # Default port
     except Exception:
-        ip, port = "192.168.56.104", 10000
+        ip, port = "192.168.56.104", 200
     finally:
         s.close()
     return ip, port
 
-def connect_to_tracker(server_ip, server_port, node_ip, node_port):
+def get_ephemeral_socket():
     """
-    :return: The connected socket object or None if the connection fails.
+    Establish a connection TO THE TRACKER using an ephemeral port.
+    :return: A connected socket object.
     """
-    global client_socket
+    global tracker_ip, tracker_port
+
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.bind(("", 0))  # Bind to an ephemeral port
+    client_socket.connect((tracker_ip, tracker_port))
+    client_socket.settimeout(10)
+    return client_socket
+
+# def get_ephemeral_socket(ip, port):
+#     """
+#     Establish a connection to the targeted peer using an ephemeral port.
+#     """
+#     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+#     client_socket.bind(('', 0))
+#     client_socket.connect((ip, port))
+#     client_socket.settimeout(10)
+#     return client_socket
+
+'''
+INITIALIZERS
+'''
+def assign_global(server_ip, server_port, root_folder, node_ip, node_port):
+    global tracker_ip, tracker_port, root_path, this_ip, this_port
+    root_path = root_folder
+    tracker_ip = server_ip
+    tracker_port = server_port
+    this_ip = node_ip
+    this_port = node_port
+
+def register_node(ephemeral_socket):
+    global this_ip, this_port
+
     try:
-        # Create and connect the socket to the server
-        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client_socket.connect((server_ip, server_port))
-        print(f"Connected to server at {server_ip}:{server_port}")
+        request = f"REGISTER_NODE {this_ip} {this_port}"
+        ephemeral_socket.sendall(request.encode('utf-8'))
+        print(f"Sent registration message: {request}")
 
-        # Register the node and its files immediately after connection
-        register_node(node_ip, node_port)
-
-        register_files()
-        return client_socket
-
-    except socket.error as e:
-        print(f"Error connecting to server: {e}")
-        return None
-
-def register_node(ip, port):
-    global client_socket
-    try:
-        message = f"REGISTER_NODE {ip} {port}"
-        client_socket.sendall(message.encode())
-        print(f"Sent registration message: {message}")
-
-        respone = client_socket.recv(1024).decode("utf-8")
+        respone = ephemeral_socket.recv(1024).decode("utf-8")
         print(f"Server response: {respone}")
+
     except socket.error as e:
         print(f"Error sending registration message: {e}")
 
-def register_files():
-    global client_socket
-    global root_path
+def register_files(ephemeral_socket):
+    global root_path, this_ip, this_port
+
     if not os.path.exists(root_path):
         print(f"Storage path {root_path} does not exist.")
         return
@@ -91,152 +95,272 @@ def register_files():
         if os.path.isfile(file_path):
             try:
                 pieces_metadata = f_sys.split_file(file_path)  # Split the file and get metadata
+                
                 magnet_link = f_sys.generate_magnet_link(os.path.basename(file_path), pieces_metadata)
                 total_piece = len(pieces_metadata)
-                command = f"REGISTER_FILE {file_name} {total_piece} {magnet_link}"
 
-                client_socket.sendall(command.encode('utf-8'))
+                request = f"REGISTER_FILE {this_ip} {this_port} {file_name} {total_piece} {magnet_link}"
+
+                ephemeral_socket.sendall(request.encode('utf-8'))
                 print(f"Registered file: {file_name} with magnet link: {magnet_link}")
 
-                respone = client_socket.recv(1024).decode('utf-8')
+                respone = ephemeral_socket.recv(1024).decode('utf-8')
                 print(f"Server response: {respone}")
                 
             except Exception as e:
                 print(f"Error registering file {file_name}: {e}")
 
-def send_runtime_commands():
-    print("You can now enter runtime commands. Type 'exit' to quit.")
-    global client_socket
-    try:
-        while True:
-            command = input("Node CLI >")
-            if command.lower() == "exit":
-                print("Closing connection...")
-                client_socket.sendall("DISCONNECT".encode())
-                break
+def register_one_file(file_name):
+    global root_path, this_ip, this_port
+    ephemeral_socket = get_ephemeral_socket()
 
-            elif command.startswith("REGISTTER_FILE"):
-                '''
-                REGISTTER_FILE <file_name> <total_piece> <magnet_link>
-                '''
-                try:
-                    file_path = command.split(" ", 1)[1]  # Extract file path from command
-                    pieces_metadata = f_sys.split_file(file_path)  # Split the file and get metadata
+    file_path = os.path.join(root_path, file_name)
+    if os.path.isfile(file_path):
+        try:
+            pieces_metadata = f_sys.split_file(file_path)  # Split the file and get metadata
 
-                    magnet_link = f_sys.generate_magnet_link(os.path.basename(file_path), pieces_metadata)
-                    request = f"{command} {magnet_link}"  
-                    client_socket.sendall(request.encode())  
-                    print(f"Sent request: {request}")
-                except Exception as e:
-                    print(f"Error processing REGISTER_FILE command: {e}")
+            magnet_link = f_sys.generate_magnet_link(os.path.basename(file_path), pieces_metadata)
+            total_piece = len(pieces_metadata)
 
-            #Use for manual input files
-            elif command.startswith("FIND_FILE"):
-                client_socket.sendall(command.encode())  #  FIND_FILE <file_name>
-                
-                # Receive and parse server response
-                response = client_socket.recv(1024 * 20).decode('utf-8')
+            request = f"REGISTER_FILE {this_ip} {this_port} {file_name} {total_piece} {magnet_link}"
 
-                f_sys.parse_find_file_response(response)
+            ephemeral_socket.sendall(request.encode('utf-8'))
+            print(f"Registered file: {file_name} with magnet link: {magnet_link}")
 
-            elif command.startswith("PING"):
-                try:
-                    _, target_ip, target_port = command.split()
-                    target_port = int(target_port)
-                    
-                    # Create a new socket for the ping
-                    ping_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    ping_socket.settimeout(5)  # Set a timeout for the connection attempt
-
-                    print(f"Pinging {target_ip}:{target_port}...")
-                    ping_socket.connect((target_ip, target_port))
-                    ping_socket.sendall("PING".encode('utf-8'))
-
-                    # Wait for a response
-                    response = ping_socket.recv(1024).decode()
-                    if response == "PONG":
-                        print(f"Ping to {target_ip}:{target_port} successful.")
-                    else:
-                        print(f"Unexpected response from {target_ip}:{target_port}: {response}")
-
-                    ping_socket.close()
-                except Exception as e:
-                    print(f"Error processing PING command: {e}")
-
-            # Wait for server response
-            response = client_socket.recv(1024).decode()
-            print(f"Server response: {response}")
-
-            # Wait for server response
-            response = client_socket.recv(1024).decode()
-            print(f"Server response: {response}")
-    except Exception as e:
-        print(f"Error in runtime commands: {e}")
-    finally:
-        client_socket.close()
-
-def listen_for_messages():
-    global client_socket
-    try:
-        while True:
-            data = client_socket.recv(1024).decode("utf-8").strip()
-            if not data:
-                print("Connection closed by server.")
-                break
-            print(f"Received from server: {data}")
+            respone = ephemeral_socket.recv(1024).decode('utf-8')
+            print(f"Server response: {respone}")
             
-            if data == "PING":
-                client_socket.sendall("PONG".encode())
+        except Exception as e:
+            print(f"Error registering file {file_name}: {e}")
 
+def connect_to_tracker():
+    ephemeral_socket = get_ephemeral_socket()
+
+    try:        
+        register_node(ephemeral_socket)
+        register_files(ephemeral_socket)
 
     except Exception as e:
-        print(f"Error in listening for messages: {e}")
+        print(f"Error connecting to tracker: {e}")
+
+    finally:
+        if ephemeral_socket:
+            ephemeral_socket.close()
+
+'''
+Thread-related functions
+'''
+def download_file(file_name):
+    global root_path
+
+    try:
+        client_socket = get_ephemeral_socket()
+        request = f"FIND_FILE {file_name}"
+
+        client_socket.sendall(request.encode('utf-8'))
+        print(f"Sent request: {request}")
+
+        response = client_socket.recv(1024 * 20).decode('utf-8')
+        respones_json = f_sys.parse_find_file_response(response)
+        print('JSON object retrived')
+
+        f_sys.inscpect(respones_json)
+
+        client_socket.close()  #Close for other connections
+
+        nodes = respones_json['nodes']                  #Array of [ip, port], eg: [["192.168.56.104", 1100], ["192.168.56.106", 1100]]
+        magnet_link = respones_json['magnet_link']      #String
+        total_piece = respones_json['total_piece']      #Int
+
+        success = f_sys.download_file(file_name, nodes, magnet_link, total_piece, root_path)
+
+        #Declare new file to the tracker
+        if success:
+            register_one_file(file_name)
+
+    except Exception as e:
+        print(f"Error processing REQUEST_FILE command: {e}")
     finally:
         client_socket.close()
 
-def start_server_process(ip, port):
+def start_server_process(this_ip, this_port):   #terminated
     """
     Start a server process that continuously listens for incoming connections.
     :param ip: IP address to bind the server to.
     :param port: Port to bind the server to.
     """
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind((ip, port))
+    server_socket.bind((this_ip, this_port))
     server_socket.listen(5)
-    print(f"Node listening on {ip}:{port}")
+
+    print(f"Node listening on {this_ip}:{this_port}")
+    global stop_server
 
     try:
-        while True:
+        while not stop_server.is_set():
             client_socket, client_addr = server_socket.accept()
             print(f"Accepted connection from {client_addr}")
 
             # Handle the client connection in a separate thread
-            client_thread = Thread(target=handle_client, args=(client_socket,))
+            client_thread = Thread(target=handle_income_request, args=(client_socket,))
             client_thread.start()
+            client_thread.join()
     except Exception as e:
         print(f"Error in server process: {e}")
     finally:
         server_socket.close()
 
-def handle_client(client_conn):
+def handle_income_request(client_conn):
     """
     Handle the communication with a connected client.
     :param client_conn: The socket object for the client connection.
     """
+    global stop_server
+    global root_path
     try:
-        while True:
+        while not stop_server.is_set():
             data = client_conn.recv(1024).decode("utf-8").strip()
             if not data:
                 print("Client disconnected.")
                 break
-            print(f"Received from client: {data}")
 
-            # Echo the received data back to the client
-            client_conn.sendall(data.encode("utf-8"))
+            print(f"Received from client: {data}") # Có thể bỏ
+            if data.startswith("REQUEST_PIECE"):
+                '''
+                REQUEST_PIECE <file_name> <piece_index>
+                '''
+                _, file_name, piece_index = data.split()
+                f_sys.upload_piece(root_path, client_conn, file_name, int(piece_index))
+
+
     except Exception as e:
         print(f"Error handling client: {e}")
     finally:
         client_conn.close()
+    
+def handle_cli_input(this_ip, this_port):
+    # Bind to an ephemeral port
+    print("You can now enter runtime commands. Type 'exit' to quit.")
+    global root_path
+
+    while True:
+        command = input("Node CLI >")
+
+        try:
+            if command.lower() == "exit":
+                stop_server.set()
+                print("Closing connection...")
+                break    
+
+            elif command.startswith("FIND_FILE"):       
+                '''
+                FIND_FILE <file_name>
+                '''         
+                try:
+                    client_socket = get_ephemeral_socket()
+                    _, file_name = command.split()
+                    request = command
+                    client_socket.sendall(request.encode('utf-8'))
+                    print(f"Sent request: {request}")
+
+                    response = client_socket.recv(1024 * 20).decode('utf-8')
+                    respone_json = f_sys.parse_find_file_response(response)
+                    print(f"Server response: ")
+                    f_sys.inscpect(respone_json)
+
+                except Exception as e:
+                    print(f"Error processing FIND_FILE command: {e}")
+                finally:
+                      client_socket.close()
+
+            elif command.startswith("REQUEST_FILE"):
+                '''
+                REQUEST_FILE <file_name>
+                '''    
+                try:
+                    client_socket = get_ephemeral_socket()
+                    _, file_name = command.split()
+                    request = f"FIND_FILE {file_name}"
+
+                    client_socket.sendall(request.encode('utf-8'))
+                    print(f"Sent request: {request}")
+
+                    response = client_socket.recv(1024 * 20).decode('utf-8')
+                    respones_json = f_sys.parse_find_file_response(response)
+                    print('JSON object retrived')
+
+                    client_socket.close() #Close for other connections  
+
+                    f_sys.inscpect(respones_json)
+
+                    nodes = respones_json['nodes']                  #Array of [ip, port], eg: [["192.168.56.104", 1100], ["192.168.56.106", 1100]]
+                    magnet_link = respones_json['magnet_link']      #String
+                    total_piece = respones_json['total_piece']      #Int
+
+                    success = f_sys.download_file(file_name, nodes, magnet_link, total_piece, root_path)
+
+                    #Declare new file to the tracker
+                    if success:
+                        register_one_file(file_name)
+
+                except Exception as e:
+                    print(f"Error processing REQUEST_FILE command: {e}")
+                finally:
+                    client_socket.close()
+
+            elif command.startswith("REQUEST_MUL"):
+                '''
+                REQUEST_MUL <thread_num> <file_1> <file_2> ... <file_n>
+                '''
+                _, thread_num, *files = command.split()
+                thread_num = int(thread_num)
+
+                threads = []
+                for file_name in files:
+                    thread = Thread(target=download_file, args=(file_name,))
+                    threads.append(thread)
+
+                for thread in threads:
+                    thread.start()
+
+                for thread in threads:
+                    thread.join()
+
+                print(f'Downloaded files: {", ".join(files)}')
+
+            elif command.startswith("ADD_FILE"):
+                '''
+                ADD_FILE <file_name>
+                '''
+                _, file_name = command.split()
+                register_one_file(file_name)
+
+        except Exception as e:
+            print(f"Error in runtime commands: {e}")
+
+#Cleaning up functions
+def cleaning_up(sig, frame):
+    global stop_server
+    stop_server.set()
+    print("Interrupt received, shutting down...")
+
+    ephemeral_socket = get_ephemeral_socket()
+    # Send disconnect message to the tracker
+    try:
+        REQUEST = f"DISCONNECT_NODE {this_ip} {this_port}"
+        ephemeral_socket.sendall(REQUEST.encode('utf-8'))
+        print(f"Sent disconnect message: {REQUEST}")
+
+        RESPONSE = ephemeral_socket.recv(1024).decode('utf-8')
+        print(f"Server response: {RESPONSE}")
+
+        sys.exit(0)
+
+    except Exception as e:
+        print(f"Error sending disconnect message: {e}")
+
+    finally:
+        ephemeral_socket.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -244,39 +368,57 @@ if __name__ == "__main__":
         description="Connect to a pre-declared server and register as a node.",
         epilog="!!!Ensure the server is running and listening before starting!!!",
     )
-    parser.add_argument("--server-ip", required=True, help="IP address of the server.")
-    parser.add_argument("--server-port", type=int, required=True, help="Port of the server.")
+    # parser.add_argument("--server-ip", required=True, help="IP address of the server.")
+    # parser.add_argument("--server-port", type=int, required=True, help="Port of the server.")
     parser.add_argument("--root-folder", required=True, help="Root folder.")
 
     args = parser.parse_args()
 
     # Extract arguments
-    server_ip = args.server_ip
-    server_port = args.server_port
+    # tracker_ip = args.server_ip
+    # tracker_port = args.server_port
 
-    client_ip, client_port = get_default_interface()  # Automatically detect the node's IP
+    tracker_ip = '192.168.56.105'
+    tracker_port = 22236
 
-    print(f"Node IP detected: {client_ip}")
-    print(f"Node Port specified: {client_port}")
+    #personal IP and port (this_ip, this_port)
+    pserver_ip, pserver_port = get_default_interface()  # Automatically detect the node's IP
 
-    # Establish client process
-    client_socket = connect_to_tracker(server_ip, server_port, client_ip, client_port)
-    if client_socket:
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
+    print(f"Node IP detected: {pserver_ip}")
+    print(f"Node Port specified: {pserver_port}")
 
-        assign_global(client_socket, args.root_folder)
+    #Khởi tạo Node
+    assign_global(tracker_ip, tracker_port, args.root_folder, pserver_ip, pserver_port)
+    connect_to_tracker()
+
+    # server_thread = Thread(target=start_server_process, daemon=False, args=(pserver_ip, pserver_port))
+    CLI_thread = Thread(target=handle_cli_input, daemon=True, args=(pserver_ip, pserver_port))
+
+    # server_thread.start()
+    CLI_thread.start()
+
+    #Dọn thread, trả port, disconnect
+    signal.signal(signal.SIGINT, cleaning_up)
+    signal.signal(signal.SIGTERM, cleaning_up)
+
+    # server_thread.join()
+    # CLI_thread.join()
+
+    #Try this model! the server model as the main thread, and the CLI as the sub-thread (daemon)
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind((pserver_ip, pserver_port))
+    server_socket.listen(60)
+
+    print(f"Node listening on {this_ip}:{this_port}")
+
+    while True:
+        print("Waiting for connection...")
+        conn, addr = server_socket.accept()      #Lệnh này mang tính blocking, chờ kết nối từ client
+        node_thread = Thread(target=handle_income_request, args=(conn,))
+        node_thread.start()
+        node_thread.join()
         
-        # Start the listening thread
-        listening_thread = Thread(target=listen_for_messages, daemon=True)
-        listening_thread.start()
 
-        # Start the CLI thread
-        cli_thread = Thread(target=send_runtime_commands)
-        cli_thread.start()
+    cleaning_up(None, None)
+    sys.exit(0)
 
-        # Wait for the CLI thread to finish
-        cli_thread.join()
-
-        client_socket.close()  # Close the connection when done
-        print("Connection closed.")
