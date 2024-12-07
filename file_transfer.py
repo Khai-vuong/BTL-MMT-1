@@ -55,7 +55,7 @@ def generate_magnet_link(file_name, pieces_metadata):
     magnet_link = f"magnet:?xt=urn:btih:{info_hash}&dn={file_name}"
     return magnet_link
 
-def decode_magnet_link(magnet_link):
+def decode_magnet_link(magnet_link):        # Terminated
     if not magnet_link.startswith("magnet:?xt=urn:btih:"):
         raise ValueError("Invalid magnet link format.")
 
