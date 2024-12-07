@@ -95,6 +95,7 @@ def register_files(ephemeral_socket):
         if os.path.isfile(file_path):
             try:
                 pieces_metadata = f_sys.split_file(file_path)  # Split the file and get metadata
+                
                 magnet_link = f_sys.generate_magnet_link(os.path.basename(file_path), pieces_metadata)
                 total_piece = len(pieces_metadata)
 
@@ -117,6 +118,7 @@ def register_one_file(file_name):
     if os.path.isfile(file_path):
         try:
             pieces_metadata = f_sys.split_file(file_path)  # Split the file and get metadata
+
             magnet_link = f_sys.generate_magnet_link(os.path.basename(file_path), pieces_metadata)
             total_piece = len(pieces_metadata)
 
@@ -308,21 +310,24 @@ def handle_cli_input(this_ip, this_port):
 
             elif command.startswith("REQUEST_MUL"):
                 '''
-                REQUEST_FILE <file_1> <file_2>
+                REQUEST_MUL <thread_num> <file_1> <file_2> ... <file_n>
                 '''
-                _, file_1, file_2 = command.split()
+                _, thread_num, *files = command.split()
+                thread_num = int(thread_num)
 
-                thread_1 = Thread(target=download_file, args=(file_1,))
-                thread_2 = Thread(target=download_file, args=(file_2,))
+                threads = []
+                for file_name in files:
+                    thread = Thread(target=download_file, args=(file_name,))
+                    threads.append(thread)
 
-                thread_1.start()
-                thread_2.start()
+                for thread in threads:
+                    thread.start()
 
-                thread_1.join()
-                thread_2.join()
+                for thread in threads:
+                    thread.join()
 
-                print(f'Download files: {file_1}, {file_2}')
-                
+                print(f'Downloaded files: {", ".join(files)}')
+
             elif command.startswith("ADD_FILE"):
                 '''
                 ADD_FILE <file_name>

@@ -272,6 +272,17 @@ def download_file(file_name, nodes, magnet_link, total_pieces, save_path="downlo
                     print(f"Failed to download piece {piece_index} after multiple attempts.")
                     return False
 
+    #Validate the file via magnet_link
+    pieces_metadata = split_file(file_path)
+    downloaded_magnet_link = generate_magnet_link(file_name, pieces_metadata)
+
+    if downloaded_magnet_link != magnet_link:
+        print("Downloaded file is corrupted. Deleting...")
+        print(f"Expected magnet link: {magnet_link}")
+        print(f"Actual magnet link: {downloaded_magnet_link}")
+        os.remove(file_path)
+        return False
+
     print(f"Download completed! File saved at: {file_path}")
     return True
     
